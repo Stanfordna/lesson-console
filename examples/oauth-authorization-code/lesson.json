@@ -1,0 +1,260 @@
+{
+ "meta": {
+  "title": "OAuth 2.0: Authorization Code + PKCE",
+  "repo": "",
+  "commit": "",
+  "githubBase": ""
+ },
+ "graph": {
+  "groups": {
+   "front": { "label": "Front channel (hostile)" },
+   "client": { "label": "Client application" },
+   "authserver": { "label": "Authorization server" },
+   "credentials": { "label": "Credentials & tokens" },
+   "resource": { "label": "Resource server" }
+  },
+  "nodes": {
+   "user": {
+    "label": "Resource owner",
+    "kind": "actor", "group": "front",
+    "summary": "The human who owns the data and grants access",
+    "detail": "The person clicking *Sign in with…*. OAuth's core promise to them: the client application never sees their password — only the authorization server does. Everything the user touches happens on the front channel, through the browser.",
+    "src": [ { "label": "RFC 6749 §1.1 (roles)", "url": "https://datatracker.ietf.org/doc/html/rfc6749#section-1.1" } ]
+   },
+   "browser": {
+    "label": "Browser (user agent)",
+    "kind": "actor", "group": "front",
+    "summary": "Carries the front channel: redirects anyone can observe",
+    "detail": "Every value that rides a redirect through the browser — URLs, query strings, history, extensions, shoulder-surfers — should be treated as visible and tamperable. The protocol is designed so nothing that passes through here is sufficient to obtain tokens by itself.",
+    "src": [ { "label": "OAuth 2.0 Security BCP §4.1", "url": "https://datatracker.ietf.org/doc/html/rfc9700" } ]
+   },
+   "client_app": {
+    "label": "Client app (server)",
+    "kind": "service", "group": "client",
+    "summary": "The application requesting access on the user's behalf",
+    "detail": "A *confidential* client: it runs server-side and can keep a `client_secret`. It initiates the flow, receives the code on its registered redirect URI, and performs the back-channel exchange. Public clients (SPAs, mobile) run the same flow minus the secret — PKCE carries the proof instead.",
+    "src": [ { "label": "RFC 6749 §2.1 (client types)", "url": "https://datatracker.ietf.org/doc/html/rfc6749#section-2.1" } ]
+   },
+   "auth_endpoint": {
+    "label": "Authorization endpoint",
+    "kind": "service", "group": "authserver",
+    "summary": "Front-channel entry: authenticates the user, gathers consent",
+    "detail": "Receives `client_id`, `redirect_uri`, `scope`, `state`, and the PKCE `code_challenge`. It authenticates the **user** (not the client) and validates that `redirect_uri` exactly matches a registered value before anything else happens.",
+    "src": [ { "label": "RFC 6749 §3.1", "url": "https://datatracker.ietf.org/doc/html/rfc6749#section-3.1" } ]
+   },
+   "consent_page": {
+    "label": "Consent",
+    "kind": "component", "group": "authserver",
+    "summary": "The user approves the requested scopes",
+    "detail": "Where the resource owner sees *what* the client is asking for (`scope`) and says yes or no. Only after approval does the server mint an authorization code. Skipping meaningful consent is how confused-deputy problems start.",
+    "src": [ { "label": "RFC 6749 §4.1.1", "url": "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1" } ]
+   },
+   "auth_code": {
+    "label": "Authorization code",
+    "kind": "credential", "group": "credentials",
+    "summary": "Single-use, short-lived claim ticket — not a token",
+    "detail": "Worthless by itself: single-use, expires in minutes (the spec recommends ≤10), bound to the `client_id`, the exact `redirect_uri`, and the PKCE challenge. It exists so the *only* secret-bearing exchange can happen on the back channel.",
+    "src": [ { "label": "RFC 6749 §4.1.2", "url": "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2" } ]
+   },
+   "token_endpoint": {
+    "label": "Token endpoint",
+    "kind": "service", "group": "authserver",
+    "summary": "Back-channel exchange: code + proofs → tokens",
+    "detail": "Server-to-server only. Verifies the authorization code, the client's credentials (`client_secret` for confidential clients), and the PKCE `code_verifier` against the challenge sent earlier. Issues the access token and, optionally, a refresh token. Also serves `grant_type=refresh_token`.",
+    "src": [ { "label": "RFC 6749 §3.2", "url": "https://datatracker.ietf.org/doc/html/rfc6749#section-3.2" } ]
+   },
+   "pkce_verifier": {
+    "label": "PKCE verifier",
+    "kind": "credential", "group": "client",
+    "summary": "Per-request proof that the code redeemer started the flow",
+    "detail": "The client generates a random `code_verifier`, sends its hash (`code_challenge`) on the front channel, and reveals the verifier only on the back channel. An attacker who intercepts the code cannot redeem it without the verifier. Required for public clients; recommended for everyone.",
+    "src": [ { "label": "RFC 7636", "url": "https://datatracker.ietf.org/doc/html/rfc7636" } ]
+   },
+   "redirect_uri": {
+    "label": "Registered redirect URI",
+    "kind": "gate", "group": "client",
+    "summary": "Exact-match allowlist for where codes may be delivered",
+    "detail": "The authorization server delivers the code only to a pre-registered URI, compared **exactly** (no wildcards, no open redirects). This is the front channel's main defense: a stolen authorization request can't reroute the code to an attacker's server.",
+    "src": [ { "label": "RFC 6749 §3.1.2", "url": "https://datatracker.ietf.org/doc/html/rfc6749#section-3.1.2" } ]
+   },
+   "access_token": {
+    "label": "Access token",
+    "kind": "credential", "group": "credentials",
+    "summary": "Short-lived bearer credential shown to the API",
+    "detail": "A *bearer* token: whoever holds it is authorized — the API validates the token, not the person. That is why it is deliberately short-lived (minutes to an hour): expiry is the blast-radius limit on leakage. Sent as `Authorization: Bearer …`.",
+    "src": [ { "label": "RFC 6750", "url": "https://datatracker.ietf.org/doc/html/rfc6750" } ]
+   },
+   "refresh_token": {
+    "label": "Refresh token",
+    "kind": "credential", "group": "credentials",
+    "summary": "Long-lived secret shown ONLY to the token endpoint",
+    "detail": "Lets the client mint new access tokens without re-involving the user. It is a long-lived, confidential credential: it never appears in an Authorization header, never goes to the resource server, and is often rotated on every use so a replay betrays the theft.",
+    "src": [ { "label": "RFC 6749 §6", "url": "https://datatracker.ietf.org/doc/html/rfc6749#section-6" } ]
+   },
+   "api": {
+    "label": "Resource server (API)",
+    "kind": "service", "group": "resource",
+    "summary": "Serves data to any bearer of a valid access token",
+    "detail": "Validates the access token (signature/introspection, expiry, scope, audience) and serves the request. It never sees the user's password, the authorization code, or the refresh token. When the token expires it answers `401` — which is the design working, not failing.",
+    "src": [ { "label": "RFC 6749 §7", "url": "https://datatracker.ietf.org/doc/html/rfc6749#section-7" } ]
+   }
+  },
+  "edges": [
+   { "from": "user", "to": "browser", "label": "clicks Sign in" },
+   { "from": "browser", "to": "client_app", "label": "GET /login" },
+   { "from": "client_app", "to": "pkce_verifier", "label": "generates + stores", "style": "dashed" },
+   { "from": "client_app", "to": "auth_endpoint", "label": "302: client_id, redirect_uri, state, code_challenge" },
+   { "from": "auth_endpoint", "to": "redirect_uri", "label": "exact-match check", "style": "dashed" },
+   { "from": "auth_endpoint", "to": "consent_page", "label": "authenticate user" },
+   { "from": "consent_page", "to": "auth_code", "label": "approval mints" },
+   { "from": "auth_code", "to": "browser", "label": "302 redirect_uri?code=…&state=…", "style": "dashed" },
+   { "from": "browser", "to": "client_app", "label": "delivers code + state", "id": "code_delivery" },
+   { "from": "client_app", "to": "token_endpoint", "label": "POST code + verifier + client_secret", "id": "code_exchange" },
+   { "from": "token_endpoint", "to": "access_token", "label": "issues (short-lived)" },
+   { "from": "token_endpoint", "to": "refresh_token", "label": "issues (long-lived)" },
+   { "from": "client_app", "to": "api", "label": "Authorization: Bearer" },
+   { "from": "api", "to": "access_token", "label": "validates", "style": "dashed" },
+   { "from": "client_app", "to": "token_endpoint", "label": "grant_type=refresh_token on 401", "style": "dashed", "id": "refresh_grant" }
+  ]
+ },
+ "scenes": [
+  {
+   "id": "S1", "kind": "overview", "title": "Two channels, three credentials",
+   "claim": "The whole design exists so the browser-visible channel never carries a real token.",
+   "nodes": ["user", "browser", "client_app", "auth_endpoint", "token_endpoint", "api"],
+   "focus": ["browser"],
+   "clusters": { "Front channel": ["user", "browser"], "Authorization server": ["auth_endpoint", "token_endpoint"] },
+   "edges": ["user__browser", "browser__client_app", "client_app__auth_endpoint", "code_exchange", "client_app__api"],
+   "annotation": "Everything on the left rides redirects anyone can observe; everything that matters happens server-to-server on the right. Three credentials will appear — a code, an access token, a refresh token — each with a different lifetime and a different audience.",
+   "question": "Before we zoom in: which of these boxes should never see an access token?"
+  },
+  {
+   "id": "S2", "title": "The front channel is hostile",
+   "claim": "Everything passing through the browser is visible and tamperable — the exact-match redirect URI is the front channel's main defense.",
+   "nodes": ["browser", "client_app", "auth_endpoint", "redirect_uri"],
+   "focus": ["redirect_uri"],
+   "annotation": "The authorization request travels as a plain 302 with query parameters. The server will deliver the code only to a **pre-registered, exactly-matching** URI — so tampering with the request can't reroute the response to an attacker. `state` rides along to bind the response to the session that started it (CSRF).",
+   "misconception": "The redirect is not a UX hop — it is the security boundary of the whole flow."
+  },
+  {
+   "id": "S3", "title": "The code is a claim ticket",
+   "claim": "The authorization code is deliberately worthless alone: single-use, minutes-long, and bound to client, redirect URI, and PKCE challenge.",
+   "nodes": ["consent_page", "auth_code", "browser", "client_app"],
+   "focus": ["auth_code"],
+   "annotation": "Consent mints the code; the browser merely carries it home. Worked example: an attacker steals `?code=SplxlOBeZQQYbYS6WxSbIA` from the URL. To redeem it they must present the client's secret AND the PKCE verifier that hashes to the challenge from step one — they have neither, and the code dies in minutes anyway.",
+   "question": "Why is intercepting the code (mostly) useless to an attacker?"
+  },
+  {
+   "id": "S4", "title": "The back channel exchange",
+   "claim": "The exchange happens server-to-server with three proofs at once: the code, the client secret, and the PKCE verifier.",
+   "nodes": ["client_app", "token_endpoint", "pkce_verifier", "access_token", "refresh_token"],
+   "focus": ["token_endpoint"],
+   "annotation": "One POST, three proofs: *the user approved this* (code), *I am the registered client* (secret), *I am the same party that started the flow* (verifier). Only after all three does the server issue tokens — and the browser never sees this request at all.",
+   "misconception": "PKCE does not replace the client secret — it complements it, and stands in for it only on public clients that cannot keep one."
+  },
+  {
+   "id": "S5", "title": "Tokens have different jobs",
+   "claim": "The access token is a short-lived bearer pass shown to the API; the refresh token is a long-lived secret shown only to the token endpoint.",
+   "nodes": ["client_app", "access_token", "refresh_token", "api", "token_endpoint"],
+   "focus": ["refresh_token"],
+   "edges": ["client_app__api", "api__access_token", "token_endpoint__access_token", "token_endpoint__refresh_token"],
+   "annotation": "Bearer means bearer: the API authorizes whoever presents a valid token, no questions asked. That's tolerable because it expires quickly. The refresh token is the opposite trade — long-lived, so it must never travel to the API or appear in a header the resource server logs.",
+   "question": "Why must the refresh token never appear in an Authorization header sent to the API?"
+  },
+  {
+   "id": "S6", "title": "Expiry is the design working",
+   "claim": "The 401-then-refresh loop is intended behavior: short expiry bounds the blast radius of any leaked bearer token.",
+   "nodes": ["client_app", "api", "access_token", "token_endpoint"],
+   "focus": ["token_endpoint"],
+   "edges": ["client_app__api", "api__access_token", "refresh_grant", "token_endpoint__access_token"],
+   "annotation": "When the API answers `401`, the client silently exchanges the refresh token for a fresh access token and retries — no user interaction. Servers that rotate refresh tokens on every use get theft detection for free: a replayed old token proves someone else redeemed it.",
+   "transition": "Now reassemble the whole flow with all three credentials in view."
+  },
+  {
+   "id": "S7", "kind": "recap", "title": "What each channel carries",
+   "claim": "Front channel: only the code. Back channel: the tokens. Expiry and rotation keep bearer risk bounded.",
+   "nodes": ["browser", "client_app", "auth_endpoint", "token_endpoint", "access_token", "refresh_token", "api"],
+   "focus": ["token_endpoint"],
+   "edges": ["client_app__auth_endpoint", "browser__client_app", "code_exchange", "token_endpoint__access_token", "token_endpoint__refresh_token", "client_app__api"],
+   "annotation": "Judge any OAuth variant against this shape: does a real token ever touch the front channel? Does anything long-lived ever reach the resource server? The implicit flow died precisely because it answered *yes* to the first question.",
+   "question": "A leaked access token vs a leaked refresh token: which hurts more, and which design choice limits each?"
+  },
+  {
+   "id": "S8", "kind": "memoryStory", "title": "The nightclub with dissolving wristbands",
+   "literalScene": "S7", "dir": "TD",
+   "claim": "One story to keep: a hand stamp traded at the back office for a dissolving wristband, while the coat-check ticket stays in a locked drawer.",
+   "annotation": "At the club door, the **doorman** checks your ID against the guest list and gives you a **hand stamp** — it smudges into nothing within minutes and only works once. You don't drink on a stamp: at the **back-office window** you trade it — while the manager checks the club's own ledger — for a **paper wristband that dissolves in an hour** and a **coat-check ticket they keep in a locked drawer**. Every **bartender** pours for anyone wearing a valid wristband; they never ask your name. When the wristband dissolves mid-night, you don't re-queue at the door — the coat-check ticket gets you a fresh one from the back office. Flash the ticket at a bartender, though, and security walks you out.",
+   "storyNodes": {
+    "guest": { "label": "Guest" },
+    "doorman": { "label": "Doorman with the guest list" },
+    "stamp": { "label": "Hand stamp (smudges in minutes)" },
+    "backoffice": { "label": "Back-office window", "shape": "decision" },
+    "wristband": { "label": "Wristband (dissolves in an hour)" },
+    "coatcheck": { "label": "Coat-check ticket (locked drawer)" },
+    "bartender": { "label": "Bartender" }
+   },
+   "storyEdges": [
+    { "from": "guest", "to": "doorman", "label": "shows ID" },
+    { "from": "doorman", "to": "stamp", "label": "stamps once" },
+    { "from": "stamp", "to": "backoffice", "label": "traded, single use" },
+    { "from": "backoffice", "to": "wristband", "label": "checks the ledger too" },
+    { "from": "backoffice", "to": "coatcheck", "label": "kept locked away" },
+    { "from": "wristband", "to": "bartender", "label": "pours on sight" },
+    { "from": "coatcheck", "to": "backoffice", "label": "fresh wristband, skip the door", "style": "dashed" }
+   ],
+   "mapping": [
+    { "storyNode": "guest", "technicalNodes": ["user"], "story": "Guest", "technical": "Resource owner" },
+    { "storyNode": "doorman", "technicalNodes": ["auth_endpoint", "consent_page"], "story": "Doorman with the guest list", "technical": "Authorization endpoint + consent" },
+    { "storyNode": "stamp", "technicalNodes": ["auth_code"], "story": "Hand stamp (smudges in minutes)", "technical": "Authorization code — single-use, short-lived" },
+    { "storyNode": "backoffice", "technicalNodes": ["token_endpoint"], "story": "Back-office window", "technical": "Token endpoint (checks client secret + PKCE)" },
+    { "storyNode": "wristband", "technicalNodes": ["access_token"], "story": "Wristband (dissolves in an hour)", "technical": "Access token — short-lived bearer" },
+    { "storyNode": "coatcheck", "technicalNodes": ["refresh_token"], "story": "Coat-check ticket (locked drawer)", "technical": "Refresh token — long-lived, token-endpoint-only" },
+    { "storyNode": "bartender", "technicalNodes": ["api"], "story": "Bartender", "technical": "Resource server (API)" }
+   ],
+   "recallQuestions": [
+    { "prompt": "Why does the bartender never learn your name?",
+      "promptMode": "story",
+      "answer": "Access tokens are bearer credentials — the API validates the token, not the person; possession is authorization, which is why expiry must be short.",
+      "answerMode": "technical", "refs": ["access_token", "api"] },
+    { "prompt": "Your wristband just dissolved. Why don't you re-queue at the door?",
+      "promptMode": "story",
+      "answer": "The refresh grant: the client exchanges the long-lived refresh token at the token endpoint for a new access token — no user interaction, no re-consent.",
+      "answerMode": "technical", "refs": ["refresh_token", "token_endpoint"] }
+   ]
+  }
+ ],
+ "levels": [
+  {
+   "id": "L1", "title": "Actors", "dir": "LR",
+   "nodes": ["user", "browser", "client_app", "auth_endpoint", "token_endpoint", "api"],
+   "clusters": [
+    { "id": "front", "label": "Front channel", "nodes": ["user", "browser"] },
+    { "id": "auth", "label": "Authorization server", "nodes": ["auth_endpoint", "token_endpoint"] }
+   ],
+   "edges": ["user__browser", "browser__client_app", "client_app__auth_endpoint", "code_exchange", "client_app__api"]
+  },
+  {
+   "id": "L2", "title": "Full flow", "dir": "TD",
+   "nodes": ["user", "browser", "client_app", "auth_endpoint", "consent_page", "auth_code",
+             "token_endpoint", "pkce_verifier", "redirect_uri", "access_token", "refresh_token", "api"],
+   "clusters": [
+    { "id": "front", "label": "Front channel", "nodes": ["user", "browser"] },
+    { "id": "client", "label": "Client", "nodes": ["client_app", "pkce_verifier", "redirect_uri"] },
+    { "id": "auth", "label": "Authorization server", "nodes": ["auth_endpoint", "consent_page", "token_endpoint"] },
+    { "id": "tokens", "label": "Credentials", "nodes": ["auth_code", "access_token", "refresh_token"] }
+   ]
+  },
+  {
+   "id": "L3", "title": "Credentials & lifetimes", "dir": "LR",
+   "nodes": ["auth_code", "access_token", "refresh_token", "pkce_verifier"],
+   "relabel": {
+    "auth_code": "Authorization code — single use, ≤10 min",
+    "access_token": "Access token — minutes to 1 hour, bearer",
+    "refresh_token": "Refresh token — days to months, confidential",
+    "pkce_verifier": "PKCE verifier — one round trip"
+   },
+   "edges": []
+  }
+ ],
+ "initialState": { "mode": "guided", "scene": "S1", "focus": [], "note": null, "pulse": false, "revision": 1 }
+}
