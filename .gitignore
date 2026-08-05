@@ -1,0 +1,7 @@
+# the vendored copy at the repo root is committed; per-example copies are
+# build artifacts placed by build.py beside each output page
+examples/**/mermaid.min.js
+
+__pycache__/
+*.pyc
+.DS_Store
