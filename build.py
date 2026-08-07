@@ -25,6 +25,7 @@ reported as "ERROR <where>: <what>" and the build exits non-zero.
 """
 
 import argparse
+import datetime
 import json
 import re
 import sys
@@ -42,6 +43,8 @@ SCENE_KINDS = {"overview", "scene", "recap", "memoryStory", "prereq"}
 QUESTION_KINDS = {"freeRecall", "cuedRecall", "prediction", "pretest",
                   "discrimination", "application", "transfer", "calculation",
                   "explanation", "ordering"}
+MANIFEST_LESSON_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+BANK_RESULTS = {"pass", "partial", "fail"}
 
 SCENES_RE = re.compile(r"<!-- SCENES:BEGIN.*?<!-- SCENES:END -->", re.S)
 ATLAS_RE = re.compile(r"<!-- ATLAS:BEGIN.*?<!-- ATLAS:END -->", re.S)
@@ -666,6 +669,176 @@ def load_data_from_html(text, path):
         raise BuildError(f"{path}: lesson-data is not valid JSON: {e}")
 
 
+# --------------------------------------------------------------------------
+# cross-lesson manifest + relearning bank (validation only; never writes)
+# --------------------------------------------------------------------------
+
+def load_lesson_data(path):
+    """Lesson data from an .html page's embedded block or a .json source."""
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".json":
+        return json.loads(text)
+    return load_data_from_html(text, path)
+
+
+def validate_manifest(manifest_path):
+    """Validate a lessons.json manifest, and relearning.json beside it.
+
+    Returns (errors, warnings); reads lesson files best-effort to check
+    scene references and cross-lesson question-id uniqueness.
+    """
+    errors, warnings = [], []
+    base = manifest_path.parent
+    try:
+        man = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return [f"{manifest_path}: {e}"], []
+    if not isinstance(man, dict):
+        return [f"{manifest_path}: manifest must be a JSON object"], []
+
+    concepts = man.get("concepts") or {}
+    if not isinstance(concepts, dict):
+        errors.append("concepts: must be an object")
+        concepts = {}
+    for cid, c in concepts.items():
+        if not CONCEPT_RE.match(str(cid)):
+            errors.append(f"concepts: id not [ns:]name: {cid!r}")
+        if not isinstance(c, dict):
+            errors.append(f"concepts.{cid}: must be an object")
+            continue
+        for k in ("requires", "provides"):
+            for rid in c.get(k) or []:
+                if rid not in concepts:
+                    warnings.append(f"concepts.{cid}: {k} tag {rid!r} not in "
+                                    "the concepts registry")
+
+    lessons = man.get("lessons")
+    if not isinstance(lessons, list) or not lessons:
+        errors.append("lessons: required non-empty list")
+        lessons = []
+    seen, provided = set(), set()
+    lesson_info = {}   # id -> {"scenes": set|None, "questions": set|None}
+    qid_owner = {}     # registry question id -> owning lesson id
+    for i, les in enumerate(lessons):
+        if not isinstance(les, dict):
+            errors.append(f"lessons[{i}]: must be an object")
+            continue
+        lid = les.get("id") or f"<lesson {i}>"
+        if not les.get("id") or not MANIFEST_LESSON_ID_RE.match(str(les["id"])):
+            errors.append(f"lessons[{i}]: id required, [a-zA-Z0-9_-]+")
+        if lid in seen:
+            errors.append(f"lessons: duplicate id {lid!r}")
+        seen.add(lid)
+        for k in ("provides", "requires"):
+            for t in les.get(k) or []:
+                if concepts and t not in concepts:
+                    warnings.append(f"lesson {lid}: {k} tag {t!r} not in the "
+                                    "concepts registry")
+        provided.update(les.get("provides") or [])
+        info = {"scenes": None, "questions": None}
+        lesson_info[lid] = info
+        p = les.get("path")
+        if not p:
+            errors.append(f"lesson {lid}: path required")
+            continue
+        fp = base / p
+        if not fp.exists():
+            errors.append(f"lesson {lid}: path {p!r} not found")
+            continue
+        try:
+            data = load_lesson_data(fp)
+        except (OSError, json.JSONDecodeError, BuildError) as e:
+            warnings.append(f"lesson {lid}: could not read lesson data ({e})")
+            continue
+        if not isinstance(data, dict):
+            continue
+        info["scenes"] = {sc.get("id") for sc in data.get("scenes") or []
+                          if isinstance(sc, dict)}
+        qs = data.get("questions")
+        info["questions"] = set(qs) if isinstance(qs, dict) else set()
+        for qid in sorted(info["questions"]):
+            if qid in qid_owner and qid_owner[qid] != lid:
+                errors.append(f"question id {qid!r} defined by both "
+                              f"{qid_owner[qid]!r} and {lid!r} (relearning "
+                              "keys must be unique across lessons)")
+            qid_owner.setdefault(qid, lid)
+    for les in lessons:
+        if isinstance(les, dict):
+            for t in les.get("requires") or []:
+                if t not in provided:
+                    warnings.append(f"lesson {les.get('id')}: requires {t!r}, "
+                                    "which no lesson provides")
+
+    bank_path = base / "relearning.json"
+    if bank_path.exists():
+        b_err, b_warn = validate_bank(bank_path, lesson_info, qid_owner)
+        errors += b_err
+        warnings += b_warn
+    return errors, warnings
+
+
+def validate_bank(bank_path, lesson_info, qid_owner):
+    """Validate relearning.json items against the manifest's lessons."""
+    errors, warnings = [], []
+    try:
+        bank = json.loads(bank_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return [f"{bank_path.name}: {e}"], []
+    items = bank.get("items") if isinstance(bank, dict) else None
+    if not isinstance(items, list):
+        return [f"{bank_path.name}: items list required"], []
+    for i, it in enumerate(items):
+        where = f"{bank_path.name} items[{i}]"
+        if not isinstance(it, dict):
+            errors.append(f"{where}: must be an object")
+            continue
+        qid = it.get("questionId")
+        if not qid or not isinstance(qid, str):
+            errors.append(f"{where}: questionId required")
+        elif "/" in qid:
+            # anonymous inline question: <lessonId>/<sceneId>/<slot>
+            parts = qid.split("/")
+            if len(parts) != 3 or parts[0] not in lesson_info:
+                errors.append(f"{where}: anonymous questionId {qid!r} must be "
+                              "<lessonId>/<sceneId>/<slot> with a known lesson")
+            else:
+                scenes = lesson_info[parts[0]]["scenes"]
+                if scenes is not None and parts[1] not in scenes:
+                    errors.append(f"{where}: scene {parts[1]!r} not in "
+                                  f"lesson {parts[0]!r}")
+        elif qid not in qid_owner:
+            errors.append(f"{where}: questionId {qid!r} not found in any "
+                          "lesson's questions registry")
+        lid = it.get("lesson")
+        if lid is not None and lid not in lesson_info:
+            errors.append(f"{where}: lesson {lid!r} not in the manifest")
+        elif lid and it.get("scene"):
+            scenes = lesson_info[lid]["scenes"]
+            if scenes is not None and it["scene"] not in scenes:
+                errors.append(f"{where}: scene {it['scene']!r} not in "
+                              f"lesson {lid!r}")
+        if it.get("result") is not None and it["result"] not in BANK_RESULTS:
+            errors.append(f"{where}: result must be one of {sorted(BANK_RESULTS)}")
+        for k in ("lastAttempt", "nextDue", "added"):
+            v = it.get(k)
+            if v is not None:
+                try:
+                    datetime.date.fromisoformat(str(v))
+                except ValueError:
+                    errors.append(f"{where}: {k} must be an ISO date (YYYY-MM-DD)")
+        if it.get("questionVersion") is not None \
+                and not isinstance(it["questionVersion"], int):
+            errors.append(f"{where}: questionVersion must be an integer")
+        if it.get("retired") is not None and not isinstance(it["retired"], bool):
+            errors.append(f"{where}: retired must be a boolean")
+        for h in it.get("history") or []:
+            if not isinstance(h, dict) or h.get("result") not in BANK_RESULTS:
+                errors.append(f"{where}: history entries need a date and a "
+                              "result (pass/partial/fail)")
+                break
+    return errors, warnings
+
+
 def report(path, errors, warnings):
     for w in warnings:
         print(f"  WARNING {w}")
@@ -680,12 +853,28 @@ def report(path, errors, warnings):
 def run(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("inputs", nargs="+", help="lesson .html files, or one .json source")
+    ap.add_argument("inputs", nargs="*", help="lesson .html files, or one .json source")
     ap.add_argument("--template", help="template HTML (required for .json input)")
     ap.add_argument("--output", help="output HTML path (required for .json input)")
     ap.add_argument("--check", action="store_true",
                     help="exit 1 if generated blocks are stale; write nothing")
+    ap.add_argument("--manifest", metavar="LESSONS_JSON",
+                    help="validate a lessons.json manifest (and a "
+                         "relearning.json beside it); writes nothing")
     args = ap.parse_args(argv)
+
+    if args.manifest:
+        if args.inputs or args.template or args.output:
+            print("ERROR: --manifest takes no other inputs")
+            return 2
+        errors, warnings = validate_manifest(Path(args.manifest))
+        if not report(args.manifest, errors, warnings):
+            return 1
+        print(f"{args.manifest}: manifest ok")
+        return 0
+    if not args.inputs:
+        print("ERROR: lesson inputs required (or --manifest)")
+        return 2
 
     exit_code = 0
     json_inputs = [p for p in args.inputs if p.endswith(".json")]

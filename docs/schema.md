@@ -191,6 +191,65 @@ Baked into the page's `LESSON_STATE` line at build time:
 - `focus` accepts **edge ids** as well as node ids — highlight a traversal
   with `"focus": ["authz__token"]`.
 
+## lessons.json — the cross-lesson manifest
+
+Lives **beside the lesson files** (not in this repo). Names each lesson,
+maps the curriculum concept layer, and anchors the relearning bank.
+
+```json
+{ "version": 1,
+  "concepts": {
+    "la:dot_product":       { "label": "Dot product" },
+    "llm:attention_scores": { "label": "Attention scores",
+                              "requires": ["la:dot_product"] } },
+  "lessons": [
+    { "id": "llm-fundamentals", "title": "Fundamentals of LLMs",
+      "path": "lesson-llm.html",
+      "provides": ["llm:attention_scores"],
+      "requires": ["la:dot_product"] } ] }
+```
+
+- Lesson ids are `[a-zA-Z0-9_-]+` and unique; `path` is relative to the
+  manifest. Scene ids never carry curriculum semantics — concepts do.
+- Validate with `python3 build.py --manifest lessons.json`: structure,
+  paths, concept references (warnings for unknown tags and unsatisfied
+  `requires`), and **cross-lesson question-id uniqueness** (read from each
+  lesson's embedded data block).
+
+## relearning.json — the successive-relearning bank
+
+Sits beside `lessons.json`; validated by the same `--manifest` run. The
+scheduler is the **driving assistant** — there is deliberately no in-page
+SRS, and no streaks, points, or badges. Identity follows the question, not
+the scene: `questionId` (+ `questionVersion`) is the primary key; `lesson` /
+`scene` are current presentation metadata, updated freely when scenes are
+split or reordered.
+
+```json
+{ "version": 1, "items": [
+  { "questionId": "dot_product_similarity_v1", "questionVersion": 1,
+    "concepts": ["la:dot_product"],
+    "lesson": "llm-fundamentals", "scene": "S4",
+    "added": "2026-08-07", "lastAttempt": "2026-08-07",
+    "result": "partial", "nextDue": "2026-08-09",
+    "observedMisconceptions": ["confused dot product with distance"],
+    "history": [ { "date": "2026-08-07", "result": "partial" } ],
+    "retired": false } ] }
+```
+
+- `result` ∈ `pass` / `partial` / `fail`; dates are ISO (`YYYY-MM-DD`).
+- Anonymous inline questions key as `<lessonId>/<sceneId>/<slot>` where slot
+  is `q` (scene question), `probe` (prereqProbe), or `r<i>` (recallQuestions
+  index). Prefer registry ids for anything bank-worthy.
+- Lifecycle (the driving protocol lives in [CLAUDE.md](../CLAUDE.md)):
+  record every graded attempt in `history`; schedule with a gap ≈20% of the
+  desired retention interval (first pass → +2 days, then ×2-2.5; partial or
+  fail → re-ask to criterion in-session, then next day); retire at 2
+  consecutive session-separated passes; a `version` bump on the question
+  resets scheduling (history kept) so the reworded question is relearned.
+- It is a plain JSON file: inspect, reset, or back it up like any other
+  file; ask the driving assistant for a due/decay summary.
+
 ## Builder CLI
 
 ```bash
@@ -203,6 +262,9 @@ python3 build.py lesson.html [more.html ...]
 # CI: fail if generated blocks are stale, write nothing
 python3 build.py lesson.html --check
 python3 build.py lesson.json --template template.html --output lesson.html --check
+
+# validate a cross-lesson manifest + relearning bank; writes nothing
+python3 build.py --manifest path/to/lessons.json
 ```
 
 Output is deterministic (same input → byte-identical output) and written

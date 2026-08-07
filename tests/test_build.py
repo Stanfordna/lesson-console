@@ -755,5 +755,150 @@ class CliModes(unittest.TestCase):
         self.assertIn('a["café → naïve"]', out)
 
 
+class ManifestAndBank(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        (self.dir / "template.html").write_text(MINIMAL_TEMPLATE, encoding="utf-8")
+        for name, qid in (("one", "alpha_flow_v1"), ("two", "beta_store_v1")):
+            data = minimal_lesson()
+            data["questions"] = {qid: {"kind": "freeRecall", "prompt": "?"}}
+            data["scenes"][0]["question"] = qid
+            (self.dir / f"{name}.json").write_text(json.dumps(data),
+                                                   encoding="utf-8")
+            run_cli([str(self.dir / f"{name}.json"),
+                     "--template", str(self.dir / "template.html"),
+                     "--output", str(self.dir / f"{name}.html")])
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def manifest(self):
+        return {
+            "version": 1,
+            "concepts": {
+                "sample:flow": {"label": "Flow"},
+                "sample:store": {"label": "Store", "requires": ["sample:flow"]},
+            },
+            "lessons": [
+                {"id": "lesson-one", "title": "One", "path": "one.html",
+                 "provides": ["sample:flow"]},
+                {"id": "lesson-two", "title": "Two", "path": "two.html",
+                 "provides": ["sample:store"], "requires": ["sample:flow"]},
+            ],
+        }
+
+    def write_manifest(self, man):
+        (self.dir / "lessons.json").write_text(json.dumps(man), encoding="utf-8")
+
+    def run_manifest(self):
+        return run_cli(["--manifest", str(self.dir / "lessons.json")])
+
+    def test_valid_manifest_is_clean(self):
+        self.write_manifest(self.manifest())
+        code, out = self.run_manifest()
+        self.assertEqual(code, 0)
+        self.assertIn("manifest ok", out)
+        self.assertNotIn("WARNING", out)
+
+    def test_duplicate_lesson_id(self):
+        man = self.manifest()
+        man["lessons"][1]["id"] = "lesson-one"
+        self.write_manifest(man)
+        code, out = self.run_manifest()
+        self.assertEqual(code, 1)
+        self.assertIn("duplicate id", out)
+
+    def test_missing_path(self):
+        man = self.manifest()
+        man["lessons"][0]["path"] = "gone.html"
+        self.write_manifest(man)
+        code, out = self.run_manifest()
+        self.assertEqual(code, 1)
+        self.assertIn("not found", out)
+
+    def test_unknown_concept_tag_warns(self):
+        man = self.manifest()
+        man["lessons"][0]["provides"] = ["sample:mystery"]
+        self.write_manifest(man)
+        code, out = self.run_manifest()
+        self.assertEqual(code, 0)
+        self.assertIn("not in the concepts registry", out)
+
+    def test_unsatisfied_requires_warns(self):
+        man = self.manifest()
+        man["lessons"][0]["provides"] = []
+        self.write_manifest(man)
+        code, out = self.run_manifest()
+        self.assertEqual(code, 0)
+        self.assertIn("which no lesson provides", out)
+
+    def test_duplicate_question_id_across_lessons(self):
+        data = json.loads((self.dir / "two.json").read_text(encoding="utf-8"))
+        data["questions"] = {"alpha_flow_v1": {"prompt": "?"}}
+        data["scenes"][0]["question"] = "alpha_flow_v1"
+        (self.dir / "two.json").write_text(json.dumps(data), encoding="utf-8")
+        run_cli([str(self.dir / "two.json"),
+                 "--template", str(self.dir / "template.html"),
+                 "--output", str(self.dir / "two.html")])
+        self.write_manifest(self.manifest())
+        code, out = self.run_manifest()
+        self.assertEqual(code, 1)
+        self.assertIn("defined by both", out)
+
+    def bank(self, **overrides):
+        item = {"questionId": "alpha_flow_v1", "questionVersion": 1,
+                "concepts": ["sample:flow"], "lesson": "lesson-one",
+                "scene": "S1", "lastAttempt": "2026-08-07",
+                "result": "partial", "nextDue": "2026-08-09",
+                "history": [{"date": "2026-08-07", "result": "partial"}],
+                "retired": False}
+        item.update(overrides)
+        return {"version": 1, "items": [item]}
+
+    def write_bank(self, bank):
+        (self.dir / "relearning.json").write_text(json.dumps(bank),
+                                                  encoding="utf-8")
+
+    def test_valid_bank_is_clean(self):
+        self.write_manifest(self.manifest())
+        self.write_bank(self.bank())
+        code, out = self.run_manifest()
+        self.assertEqual(code, 0)
+
+    def test_bank_unknown_question_and_lesson_and_scene(self):
+        self.write_manifest(self.manifest())
+        self.write_bank(self.bank(questionId="ghost_v1"))
+        code, out = self.run_manifest()
+        self.assertEqual(code, 1)
+        self.assertIn("not found in any lesson's questions registry", out)
+        self.write_bank(self.bank(lesson="lesson-nine"))
+        code, out = self.run_manifest()
+        self.assertIn("not in the manifest", out)
+        self.write_bank(self.bank(scene="S9"))
+        code, out = self.run_manifest()
+        self.assertIn("scene 'S9' not in lesson", out)
+
+    def test_bank_anonymous_key_form(self):
+        self.write_manifest(self.manifest())
+        self.write_bank(self.bank(questionId="lesson-one/S1/q"))
+        code, _ = self.run_manifest()
+        self.assertEqual(code, 0)
+        self.write_bank(self.bank(questionId="lesson-one/S9/q"))
+        code, out = self.run_manifest()
+        self.assertEqual(code, 1)
+        self.assertIn("scene 'S9' not in lesson", out)
+
+    def test_bank_bad_result_and_date(self):
+        self.write_manifest(self.manifest())
+        self.write_bank(self.bank(result="meh"))
+        code, out = self.run_manifest()
+        self.assertEqual(code, 1)
+        self.assertIn("result must be one of", out)
+        self.write_bank(self.bank(nextDue="tomorrow"))
+        code, out = self.run_manifest()
+        self.assertIn("ISO date", out)
+
+
 if __name__ == "__main__":
     unittest.main()

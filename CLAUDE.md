@@ -88,6 +88,51 @@ The page tail contains one line:
   conversation moves.
 - `focus` is for ad-hoc "the thing we're discussing right now" highlights on
   top of the scene's own focus; it survives reloads until you clear it.
+  It accepts **edge ids** too (`"focus": ["authz__token"]`) — use that to
+  trace a traversal while discussing it.
+
+## Grading, detours, drills, and relearning (v4)
+
+The page never takes input; **every answer arrives in chat and you grade it
+there**, against the question's `rubric`:
+
+- Listen for each `expectedConcepts` entry, name any `misconceptions` you
+  hear (they are the highest-value corrections), and treat
+  `expectedElements` as diagram parts the answer should have touched.
+  Grade the *reasoning*, not the wording. Verdicts: pass / partial / fail.
+- **Prereq probes**: when a scene has a `prereqProbe`, ask it before
+  teaching the scene. You decide pass or detour from the answer — a detour
+  is corequisite support, never a gate. To detour:
+  `{"scene": "<detourTo>", "detour": {"returnTo": "<scene>"}, …}` +
+  revision bump. Return the same way (or the learner clicks ↩). Offer the
+  detour even after a pass if the learner wants it; keep detours scoped to
+  the one concept needed now.
+- **Occlusion drills**: set `"occlude": true` (or a list of node/edge ids)
+  with a revision bump, ask the learner to reconstruct the hidden labels in
+  chat, grade, then clear. Clicking a node reveals it (self-check); scene
+  changes clear occlusion automatically.
+- **Entry deep links**: `lesson.html?scene=S4` opens at S4 (applies once) —
+  use it when a review session needs one scene of one lesson.
+
+**The relearning bank is the to-do list of durable memory.** State lives in
+`relearning.json` beside the learner's `lessons.json` manifest (never in the
+page; see [docs/schema.md](docs/schema.md) for both schemas — key by
+questionId+version, lesson/scene are just presentation metadata):
+
+- After grading any bank-worthy question, append the attempt to its item's
+  `history`, update `result`/`lastAttempt`/`observedMisconceptions`, and
+  reschedule `nextDue`: gap ≈20% of the desired retention interval — first
+  pass +2 days, each later pass ×2-2.5; partial/fail → re-ask to criterion
+  now, then next day.
+- Retire an item after 2 consecutive session-separated passes; resurrect
+  for exam sweeps. If a question's `version` bumps, keep history but reset
+  scheduling.
+- A review session: read due items (`nextDue <= today`, not retired),
+  interleave concepts across lessons, open each via its deep link, ask in
+  chat (mix kinds — recall, application, transfer), grade, reschedule.
+  Withhold explanations until after the attempt.
+- Validate after editing: `python3 build.py --manifest lessons.json`.
+- Never add streaks, points, badges, or engagement metrics.
 
 ## Repo conventions
 
