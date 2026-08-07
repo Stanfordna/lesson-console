@@ -327,6 +327,107 @@ class ValidateQuestions(unittest.TestCase):
         self.assertFalse(any("consecutive" in w for w in warnings))
 
 
+class ValidatePrereq(unittest.TestCase):
+    def prereq_lesson(self):
+        data = minimal_lesson()
+        data["questions"] = {
+            "flow_probe_v1": {"kind": "cuedRecall",
+                              "prompt": "What does the a->b edge carry?"},
+        }
+        data["scenes"] = [
+            {"id": "S1", "title": "Alpha feeds Beta", "nodes": ["a", "b", "c"],
+             "prereqProbe": {"question": "flow_probe_v1",
+                             "detourTo": "P1", "returnTo": "S1"}},
+            {"id": "S2", "title": "Beta stores", "nodes": ["a", "b", "c"]},
+            {"id": "P1", "kind": "prereq", "title": "Edges carry messages",
+             "nodes": ["a", "b", "c"]},
+        ]
+        return data
+
+    def test_valid_prereq_lesson_is_clean(self):
+        errors, warnings = build.validate(self.prereq_lesson())
+        self.assertEqual(errors, [])
+        self.assertEqual(warnings, [])
+
+    def test_probe_question_required_and_must_be_registry_id(self):
+        data = self.prereq_lesson()
+        del data["scenes"][0]["prereqProbe"]["question"]
+        assert_error(self, data, "prereqProbe.question required")
+        data = self.prereq_lesson()
+        data["scenes"][0]["prereqProbe"]["question"] = "nope_v1"
+        assert_error(self, data, "not a questions registry id")
+
+    def test_probe_inline_question_object_is_valid(self):
+        data = self.prereq_lesson()
+        data["scenes"][0]["prereqProbe"]["question"] = {
+            "kind": "cuedRecall", "prompt": "Inline probe?"}
+        self.assertEqual(errors_of(data), [])
+
+    def test_detour_to_required_and_must_be_prereq(self):
+        data = self.prereq_lesson()
+        del data["scenes"][0]["prereqProbe"]["detourTo"]
+        assert_error(self, data, "detourTo required")
+        data = self.prereq_lesson()
+        data["scenes"][0]["prereqProbe"]["detourTo"] = "S9"
+        assert_error(self, data, "not a scene id")
+        data = self.prereq_lesson()
+        data["scenes"][0]["prereqProbe"]["detourTo"] = "S2"
+        assert_error(self, data, 'must be a kind:"prereq" scene')
+
+    def test_return_and_pass_must_be_non_prereq_scenes(self):
+        data = self.prereq_lesson()
+        data["scenes"][0]["prereqProbe"]["returnTo"] = "P1"
+        assert_error(self, data, "must not be a prereq scene")
+        data = self.prereq_lesson()
+        data["scenes"][0]["prereqProbe"]["passTo"] = "S9"
+        assert_error(self, data, "prereqProbe.passTo 'S9' is not a scene id")
+
+    def test_probe_on_prereq_scene_is_an_error(self):
+        data = self.prereq_lesson()
+        data["scenes"][2]["prereqProbe"] = {"question": "flow_probe_v1",
+                                            "detourTo": "P1"}
+        assert_error(self, data, "detours must not recurse")
+
+    def test_orphan_prereq_scene_warns(self):
+        data = self.prereq_lesson()
+        del data["scenes"][0]["prereqProbe"]
+        _, warnings = build.validate(data)
+        self.assertTrue(any("not referenced by any prereqProbe" in w
+                            for w in warnings))
+
+    def test_question_plus_probe_warns(self):
+        data = self.prereq_lesson()
+        data["scenes"][0]["question"] = "Also a question?"
+        _, warnings = build.validate(data)
+        self.assertTrue(any("both question and prereqProbe" in w
+                            for w in warnings))
+
+    def test_all_prereq_scenes_is_an_error(self):
+        data = minimal_lesson()
+        data["scenes"] = [{"id": "P1", "kind": "prereq", "title": "Only",
+                           "nodes": ["a", "b", "c"]}]
+        assert_error(self, data, "at least one non-prereq scene")
+
+    def test_prereq_scene_does_not_make_questions_consecutive(self):
+        data = self.prereq_lesson()
+        data["scenes"][2]["question"] = "Prereq check?"
+        data["scenes"][0]["question"] = None
+        _, warnings = build.validate(data)
+        self.assertFalse(any("consecutive" in w for w in warnings))
+
+    def test_initial_state_detour(self):
+        data = self.prereq_lesson()
+        data["initialState"] = {"revision": 1, "scene": "P1",
+                                "detour": {"returnTo": "S1"}}
+        self.assertEqual(errors_of(data), [])
+        data["initialState"]["detour"] = {"returnTo": "S9"}
+        assert_error(self, data, "detour.returnTo 'S9' is not a scene id")
+        data["initialState"]["detour"] = {"returnTo": "P1"}
+        assert_error(self, data, "detour.returnTo 'P1' must not be a prereq")
+        data["initialState"]["detour"] = "S1"
+        assert_error(self, data, "detour: must be an object")
+
+
 class CompatGoldens(unittest.TestCase):
     """v4 must not change what v3 lessons validate to or materialize as."""
 

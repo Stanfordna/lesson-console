@@ -107,8 +107,44 @@ Ordered. Each scene is a *view* over the graph:
 | `question` | Optional. A string that exactly matches a `questions` registry key is a **reference**; any other string is a **literal prompt** (v3 form); an inline object is an anonymous typed question. Displayed by the page; *asked in chat* by the driving assistant. |
 | `misconception` | Optional "an expert would assume X; here X is false" callout. |
 | `transition` | Optional one-line bridge to the next scene. |
-| `kind` | `scene` (default), `overview`, `recap`, `memoryStory`. |
+| `kind` | `scene` (default), `overview`, `recap`, `memoryStory`, `prereq`. |
+| `prereqProbe` | Optional corequisite checkpoint (see below). |
 | `syntax` | Raw-Mermaid escape hatch: supply a complete diagram (`sequenceDiagram`, `stateDiagram-v2`, …) instead of a graph view. `nodes`/`edges`/`clusters`/`relabel` are ignored; click-binding is best-effort. |
+
+### prereq scenes and probes (corequisite detours)
+
+A `kind:"prereq"` scene is a normal view with a different place in the flow:
+it is **excluded from the linear sequence** (not counted in "N of M",
+unreachable via prev/next, absent from the jump list) and is shown only as a
+**detour**. Convention: place prereq scenes at the end of `scenes`.
+
+A scene that depends on possibly-decayed knowledge declares a probe:
+
+```json
+"prereqProbe": {
+  "question": "dot_product_similarity_v1",   // registry id or inline object
+  "detourTo": "P1",                          // a kind:"prereq" scene
+  "returnTo": "S4",                          // optional; both default to the
+  "passTo":   "S4"                           // probing scene
+}
+```
+
+The page displays the probe as a "checkpoint"; the driving assistant asks it
+in chat and **decides pass/detour from the answer**. A failed probe opens
+support, never blocks; passing skips remembered material; the learner may
+request the detour even after passing. Detours must not recurse: a prereq
+scene cannot carry its own `prereqProbe` (validated).
+
+To move the learner into a detour, the assistant sets both the scene and the
+way back, then bumps `revision`:
+
+```json
+{ "mode": "guided", "scene": "P1", "detour": { "returnTo": "S4" }, … }
+```
+
+While detoured, the scene bar shows "↩ detour", progress freezes at the
+return scene, and "next" returns to `returnTo`. The detour survives
+incidental reloads (it is part of the learner's local position).
 
 ### memoryStory scenes (optional capstone)
 
@@ -146,6 +182,8 @@ Baked into the page's `LESSON_STATE` line at build time:
   revision changes (deliberately ephemeral).
 - `mode` is `guided` or `atlas`; `level` selects the atlas level when moving
   the learner to a specific map.
+- `detour` (optional) is `{ "returnTo": "<non-prereq scene id>" }` — set it
+  together with `scene` pointing at a prereq scene (see the prereq section).
 
 ## Builder CLI
 

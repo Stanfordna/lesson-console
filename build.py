@@ -38,7 +38,7 @@ DIRS = {"LR", "RL", "TD", "TB", "BT"}
 STYLES = {"solid", "dashed"}
 SHAPES = {"box", "decision", "round"}
 MODES = {"guided", "atlas"}
-SCENE_KINDS = {"overview", "scene", "recap", "memoryStory"}
+SCENE_KINDS = {"overview", "scene", "recap", "memoryStory", "prereq"}
 QUESTION_KINDS = {"freeRecall", "cuedRecall", "prediction", "pretest",
                   "discrimination", "application", "transfer", "calculation",
                   "explanation", "ordering"}
@@ -386,6 +386,64 @@ def validate(data):
         else:
             check_view(sc, where, allow_big=False)
 
+    # Prereq detours: probes route to kind:"prereq" scenes and back. They are
+    # corequisite support, never gates — validated as routing contracts.
+    scene_kind = {sc.get("id"): (sc.get("kind") or "scene")
+                  for sc in scenes if isinstance(sc, dict) and sc.get("id")}
+    if scenes and all(isinstance(sc, dict) and sc.get("kind") == "prereq"
+                      for sc in scenes):
+        errors.append("scenes: at least one non-prereq scene required")
+    detour_targets = set()
+    for sc in scenes:
+        if not isinstance(sc, dict) or sc.get("prereqProbe") is None:
+            continue
+        where = f"scene {sc.get('id')}"
+        probe = sc["prereqProbe"]
+        if sc.get("kind") == "prereq":
+            errors.append(f"{where}: a prereq scene cannot carry its own "
+                          "prereqProbe (detours must not recurse)")
+        if not isinstance(probe, dict):
+            errors.append(f"{where}: prereqProbe must be an object")
+            continue
+        q = probe.get("question")
+        if q is None:
+            errors.append(f"{where}: prereqProbe.question required")
+        elif isinstance(q, str):
+            if q in question_bank:
+                referenced_questions.add(q)
+            else:
+                errors.append(f"{where}: prereqProbe.question {q!r} is not a "
+                              "questions registry id")
+        else:
+            check_question(q, f"{where}: prereqProbe.question")
+        det = probe.get("detourTo")
+        if not det:
+            errors.append(f"{where}: prereqProbe.detourTo required")
+        elif det not in scene_kind:
+            errors.append(f"{where}: prereqProbe.detourTo {det!r} is not a scene id")
+        elif scene_kind[det] != "prereq":
+            errors.append(f"{where}: prereqProbe.detourTo {det!r} must be a "
+                          "kind:\"prereq\" scene")
+        else:
+            detour_targets.add(det)
+        for k in ("returnTo", "passTo"):
+            v = probe.get(k)
+            if v is None:
+                continue
+            if v not in scene_kind:
+                errors.append(f"{where}: prereqProbe.{k} {v!r} is not a scene id")
+            elif scene_kind[v] == "prereq":
+                errors.append(f"{where}: prereqProbe.{k} {v!r} must not be a "
+                              "prereq scene")
+        if sc.get("question") is not None:
+            warnings.append(f"{where}: both question and prereqProbe on one "
+                            "scene — consider moving one of them")
+    for sc in scenes:
+        if isinstance(sc, dict) and sc.get("kind") == "prereq" \
+                and sc.get("id") not in detour_targets:
+            warnings.append(f"scene {sc.get('id')}: prereq scene is not "
+                            "referenced by any prereqProbe")
+
     # "Never two scene questions in a row" is a guided-teaching heuristic,
     # not a global invariant: memoryStory recallQuestions and prereq probes
     # are separate mechanisms and never trip this.
@@ -438,6 +496,17 @@ def validate(data):
             for f in state.get("focus") or []:
                 if f not in nodes:
                     errors.append(f"initialState.focus id {f!r} unknown")
+            det = state.get("detour")
+            if det is not None:
+                if not isinstance(det, dict) or not det.get("returnTo"):
+                    errors.append("initialState.detour: must be an object "
+                                  "with a returnTo scene id")
+                elif det["returnTo"] not in scene_ids:
+                    errors.append(f"initialState.detour.returnTo "
+                                  f"{det['returnTo']!r} is not a scene id")
+                elif scene_kind.get(det["returnTo"]) == "prereq":
+                    errors.append(f"initialState.detour.returnTo "
+                                  f"{det['returnTo']!r} must not be a prereq scene")
 
     return errors, warnings
 
