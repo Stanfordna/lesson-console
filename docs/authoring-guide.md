@@ -95,6 +95,50 @@ chat, in its own words, and discusses the answer there. Learners never copy
 questions between surfaces, and the page deliberately has **no answer input**
 — grading happens in the conversation.
 
+## Prerequisite probes and detours (corequisite, never a gate)
+
+Remediation that blocks loses people; support that arrives at the moment of
+need keeps them (the corequisite model). Design rules:
+
+- Put a `prereqProbe` on the scene that *uses* the possibly-decayed
+  knowledge — never gate the opening scenes on it.
+- The detour scene teaches **only the concept needed now**, in one scene.
+  If the refresher wants two scenes, it wants its own lesson.
+- The driving assistant decides pass/detour from the chat answer, and
+  offers the detour even after a pass. Returning restores the exact
+  position.
+- Detours never recurse (validated): a prereq scene cannot probe further
+  back. If the learner is missing the prerequisite's prerequisite, that is
+  a different lesson, reached by referral.
+
+## Occlusion drills
+
+Label occlusion (state `occlude`, or the ••• menu) is retrieval practice on
+the diagram the learner already studied: blank the labels, have them
+reconstruct the cast and edges *in chat*, grade there. Use it at recaps and
+in review sessions — not on first contact with a scene. Never build a
+separate "quiz diagram"; the whole point is recalling the exact picture
+they learned.
+
+## Referral-with-a-claim (the wrong-tool rule)
+
+The console's niche is mental models. Geometric intuition, continuous
+manipulation, long derivations, mass repetition, and authentic practice
+belong elsewhere (see the routing table in
+[design-decisions.md](design-decisions.md)). When a lesson reaches one of
+those boundaries, add a `src` link or annotation that **names the claim**
+the external resource will prove ("3B1B ch. 9 shows why the dot product is
+a projection — watch it before S5"), so leaving the console feels like part
+of the lesson, not an exit.
+
+## Mathematical notation
+
+Use disciplined Unicode and code spans: `Wᵏ`, `d_k`, `√d_k`, `Xᵀ`, shape
+maps as `` `[T×d] @ [d×T] → [T×T]` ``. One symbol per node with its shape
+and role is the console's strongest math move (notation decoding). Stacked
+fractions, rendered matrices, and multi-line derivations do not fit Mermaid
+labels — do not distort them to fit; refer out instead.
+
 ## Teaching experts
 
 Your learner is an expert in general, a novice only in this system.

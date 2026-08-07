@@ -75,6 +75,24 @@ it honest.
   the page live-reloads on localhost within ~2s. A `revision` counter gates
   authored moves: reloads without a revision bump never steal the learner's
   place, zoom, or mode.
+- **Typed questions with grading rubrics** — a per-lesson `questions`
+  registry (stable ids, kinds like `prediction`/`freeRecall`/`transfer`,
+  concept tags, rubrics). The page displays the prompt; the learner answers
+  **in chat**, where the driving assistant grades reasoning against the
+  rubric. The page deliberately has no input widget.
+- **Prerequisite probes and inline detours** — corequisite, never a gate: a
+  scene checkpoint the assistant asks before continuing; a shaky answer
+  detours to a `kind:"prereq"` scene outside the main sequence and returns
+  exactly where the learner left off.
+- **Label occlusion** — blank the labels on the scene the learner just
+  studied (`occlude` state or the ••• menu) and have them reconstruct it in
+  chat; clicking a node reveals it.
+- **Edge addressability** — `focus` accepts edge ids, so chat can highlight
+  a traversal, not just boxes.
+- **Deep links and cross-lesson structure** — `lesson.html?scene=S4` entry
+  links (applied once, never fighting the learner's navigation), relative
+  lesson-to-lesson links, and a `lessons.json` manifest + `relearning.json`
+  successive-relearning bank validated by `build.py --manifest`.
 - **Mouse-first, keyboard-friendly** — prev/next buttons, jump list, click-
   to-open details (nothing ever auto-opens), Escape closes overlays, arrow
   keys work when no dialog is open.
@@ -128,10 +146,14 @@ The intended workflow with an AI assistant (see [CLAUDE.md](CLAUDE.md)):
    `LESSON_STATE` — `{"mode":"guided","scene":"S4","focus":[],"note":"…",
    "pulse":true,"revision":7}` — and **bumps `revision`**. The page reloads
    and moves to the authored position, showing the note banner.
-3. The assistant asks the scene's question in chat, in its own words.
+3. The assistant asks the scene's question in chat, in its own words,
+   and grades the answer there against the question's rubric.
    The page displays the question; the dialogue happens in chat.
 4. Edits that don't bump `revision` (typo fixes, later-scene authoring)
    reload the page but leave the learner exactly where they were.
+5. Probes, detours (`"detour": {"returnTo": …}`), occlusion drills
+   (`"occlude": true`), and the relearning cadence are described in
+   [CLAUDE.md](CLAUDE.md) and [docs/schema.md](docs/schema.md).
 
 ## Browser and runtime support
 
@@ -157,7 +179,9 @@ CI runs the unit tests plus staleness checks on the template and the example.
 - The normalized graph materializes **flowcharts**. Scenes may supply a raw
   Mermaid block (`"syntax": "sequenceDiagram\n..."`) as an escape hatch for
   sequence/state/ER diagrams; node click-binding is best-effort there.
-- Lessons are single files by design; there is no cross-lesson linking (yet).
+- Lessons are single files by design; cross-lesson structure lives in an
+  optional `lessons.json` manifest beside them (relative links + `?scene=`
+  deep links hop between pages).
 - The revision-gated state model is deliberately simple: one authored
   position, one local position. It does not merge concurrent edits.
 

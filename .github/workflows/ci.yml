@@ -24,3 +24,6 @@ jobs:
             --template template.html \
             --output examples/oauth-authorization-code/lesson.html \
             --check
+
+      - name: Template self-test is not stale
+        run: python3 build.py template.html --check

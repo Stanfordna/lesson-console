@@ -65,7 +65,101 @@ every scene is as small and readable as a hand-drawn whiteboard sketch.
 The data model was normalized to support this (see below). A revision-gated
 state line made the page safely driveable from chat.
 
+### v4 — questions, detours, occlusion, relearning (current)
+
+Driven by a five-lane research review (2026-08) on what interactivity is
+worth building for real coursework. The convergent finding: **the chat
+free-recall loop was already the top-tier mechanism** (free recall g≈0.8 vs
+recognition g≈0.32); v4's leverage is scheduling and question design, not
+widgets. Drag-and-drop label banks were rejected outright (recognition-tier,
+no controlled-study support). "Interactivity" in v4 means the learner
+predicts, recalls, chooses, and gets adaptive feedback — the page still has
+**no input widget**; chat asks, accepts, grades, and routes.
+
+What shipped: a typed question registry with chat-side rubrics; corequisite
+prereq probes with inline detour scenes (`detour.returnTo` state); label
+occlusion (the honest form of the drag-drop instinct); runtime edge
+addressability; `?scene=` deep links and relative lesson links; and a
+cross-lesson manifest + external successive-relearning bank
+(`lessons.json` / `relearning.json`, validated by `--manifest`).
+
+## The v4 product boundary
+
+The console does not try to teach everything. Its niche is **constructing
+and refreshing mental models**; it hands the learner to a better medium for
+everything else, with a *referral-with-a-claim* (what the external resource
+teaches and why they're leaving).
+
+| Learning need | Preferred surface |
+|---|---|
+| Build a system-level mental model | Lesson Console |
+| Refresh definitions and causal relationships | Console + chat recall |
+| Diagnose forgotten prerequisites | Probe + console detour |
+| Develop geometric intuition | External visualization (3B1B, immersivemath) |
+| Continuous parameter manipulation | Simulator/visualization tool |
+| Practice derivations or proofs | Notebook/chat |
+| Implement an algorithm | IDE |
+| Complete many repetitions | Relearning bank cadence or Anki |
+| Explore a large algorithm state space | Existing specialist tool (VisuAlgo) |
+| Review source-anchored architecture | Console atlas |
+
 ## Settled decisions
+
+### Questions have identities independent of scenes
+
+Scenes get split, reordered, and rewritten; moving a question must not erase
+its relearning history. Hence the top-level `questions` registry with stable
+ids and versions; the bank keys on `questionId`+`questionVersion` and treats
+lesson/scene as presentation metadata. Rubrics carry conceptual items
+(`expectedConcepts`, `misconceptions`) so they work for math and transfer,
+not only diagram recall (`expectedElements`).
+
+### Relearning state lives beside the lessons, not in the page
+
+sessionStorage is tab-scoped, evaporates on close, and is unreadable by the
+assistant — it cannot do cross-lesson scheduling, which is the entire point
+(successive relearning is worth ~a letter grade; Rawson & Dunlosky). The
+scheduler is the driving assistant; `relearning.json` is a plain file the
+learner can read, reset, and back up. Rejected: an in-page SRS engine, and
+all engagement mechanics (streaks, points, badges — overjustification risk
+for exactly this kind of learner).
+
+### Teaching mode ≠ review mode
+
+"Questions never consecutive" is a guided-teaching heuristic (the validator
+warns), **not a global invariant**. memoryStory recall prompts and prereq
+probes are separate mechanisms and never count against it. Review sessions
+driven from the bank do the opposite on purpose: consecutive, interleaved
+questions across lessons, explanations withheld until after the attempt.
+
+### Math renders as disciplined Unicode, not a math engine
+
+Notation bites (`Wᵏ`, `√d_k`, `Xᵀ`, shape maps like `[T×d] @ [d×T] → [T×T]`)
+render as Unicode and code spans in labels, annotations, and prompts.
+Stacked fractions, rendered matrices, and multi-line equations are out of
+scope — refer out rather than distort the math to fit Mermaid labels. If a
+real lesson proves this insufficient, evaluating a vendored CSP-safe
+renderer is a deliberate follow-up, not a casual dependency.
+
+### Do not build (settled by the v4 research; needs new evidence to reopen)
+
+Drag-and-drop label banks; build-the-diagram-yourself modes (author-provided
+beats learner-generated on transfer — Stull & Mayer); continuous-manipulation
+math widgets; a state-space explorer; in-page drill banks; any in-page SRS;
+streaks/points/badges. Deferred until real use demands it: a page→chat
+`LESSON_REPORT` channel (nothing typed into the page is gradable until it
+exists — which is why the page has no inputs), and a bounded frontier-ledger
+stepper (`interaction: {kind: "frontierLedger"}` — ≤9-node cast, prediction
+gated per reveal; build only if static prediction demonstrably falls short).
+
+### Judge v4 by learning, not activity
+
+Success is: the learner reconstructs the model tomorrow; solves a
+differently-worded problem; spots an unlabeled application; explains why the
+attractive wrong answer fails; returns weeks later and finds only what
+decayed; a detour restores progress without forced review. Explicitly valid
+outcome: static prediction + chat feedback beating a fancier widget. Never
+measured: widget count, time-in-console, completion %, clicks, streaks.
 
 ### One normalized graph; scenes and levels are views
 

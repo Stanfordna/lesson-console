@@ -117,6 +117,30 @@
    { "from": "client_app", "to": "token_endpoint", "label": "grant_type=refresh_token on 401", "style": "dashed", "id": "refresh_grant" }
   ]
  },
+ "questions": {
+  "code_interception_value_v1": {
+   "kind": "prediction",
+   "prompt": "Why is intercepting the code (mostly) useless to an attacker?",
+   "concepts": ["oauth:auth_code", "oauth:pkce"],
+   "rubric": {
+    "expectedConcepts": ["the code alone redeems nothing", "client secret required", "PKCE verifier required", "single-use, minutes-long lifetime"],
+    "misconceptions": ["the code is itself a bearer credential"],
+    "expectedElements": ["auth_code", "pkce_verifier"]
+   },
+   "answer": "Redeeming it requires the client secret AND the PKCE verifier that hashes to the original challenge — the thief has neither, and the code is single-use and expires in minutes.",
+   "version": 1
+  },
+  "pkce_commitment_v1": {
+   "kind": "cuedRecall",
+   "prompt": "The client sent a hash of its verifier at the very start. What does that commit the client to at exchange time?",
+   "concepts": ["oauth:pkce", "crypto:hash_commitment"],
+   "rubric": {
+    "expectedConcepts": ["revealing a preimage that hashes to the earlier challenge", "proving it is the same party that started the flow"],
+    "misconceptions": ["the challenge encrypts or signs the code"]
+   },
+   "version": 1
+  }
+ },
  "scenes": [
   {
    "id": "S1", "kind": "overview", "title": "Two channels, three credentials",
@@ -142,7 +166,7 @@
    "nodes": ["consent_page", "auth_code", "browser", "client_app"],
    "focus": ["auth_code"],
    "annotation": "Consent mints the code; the browser merely carries it home. Worked example: an attacker steals `?code=SplxlOBeZQQYbYS6WxSbIA` from the URL. To redeem it they must present the client's secret AND the PKCE verifier that hashes to the challenge from step one — they have neither, and the code dies in minutes anyway.",
-   "question": "Why is intercepting the code (mostly) useless to an attacker?"
+   "question": "code_interception_value_v1"
   },
   {
    "id": "S4", "title": "The back channel exchange",
@@ -150,7 +174,8 @@
    "nodes": ["client_app", "token_endpoint", "pkce_verifier", "access_token", "refresh_token"],
    "focus": ["token_endpoint"],
    "annotation": "One POST, three proofs: *the user approved this* (code), *I am the registered client* (secret), *I am the same party that started the flow* (verifier). Only after all three does the server issue tokens — and the browser never sees this request at all.",
-   "misconception": "PKCE does not replace the client secret — it complements it, and stands in for it only on public clients that cannot keep one."
+   "misconception": "PKCE does not replace the client secret — it complements it, and stands in for it only on public clients that cannot keep one.",
+   "prereqProbe": { "question": "pkce_commitment_v1", "detourTo": "P1", "returnTo": "S4" }
   },
   {
    "id": "S5", "title": "Tokens have different jobs",
@@ -221,6 +246,13 @@
       "answer": "The refresh grant: the client exchanges the long-lived refresh token at the token endpoint for a new access token — no user interaction, no re-consent.",
       "answerMode": "technical", "refs": ["refresh_token", "token_endpoint"] }
    ]
+  },
+  {
+   "id": "P1", "kind": "prereq", "title": "A hash commits, without revealing",
+   "claim": "Sending hash(verifier) up front commits the client to a secret it reveals only at exchange time — the server just re-hashes and compares.",
+   "nodes": ["client_app", "pkce_verifier", "auth_endpoint", "token_endpoint"],
+   "focus": ["pkce_verifier"],
+   "annotation": "Corequisite refresher. The client invents a random `verifier`, sends only `SHA-256(verifier)` (the *challenge*) with the first redirect, and reveals the verifier itself on the back channel. The token endpoint re-hashes and compares. Anyone who watched the front channel saw only the hash — and a hash has no practical preimage. Commit now, reveal later."
   }
  ],
  "levels": [
