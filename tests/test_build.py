@@ -213,6 +213,147 @@ class ValidateViews(unittest.TestCase):
         assert_error(self, data, "syntax must be a non-empty string")
 
 
+class ValidateQuestions(unittest.TestCase):
+    def question_lesson(self):
+        data = minimal_lesson()
+        data["questions"] = {
+            "alpha_feeds_beta_v1": {
+                "kind": "prediction",
+                "prompt": "What does Alpha send Beta?",
+                "concepts": ["sample:flow", "plain_concept"],
+                "rubric": {
+                    "expectedConcepts": ["a message"],
+                    "misconceptions": ["Beta polls Alpha"],
+                    "expectedElements": ["a", "a__b"],
+                },
+                "answer": "A message over the a__b edge.",
+                "version": 1,
+            }
+        }
+        data["scenes"][0]["question"] = "alpha_feeds_beta_v1"
+        return data
+
+    def test_valid_registry_and_reference_is_clean(self):
+        errors, warnings = build.validate(self.question_lesson())
+        self.assertEqual(errors, [])
+        self.assertEqual(warnings, [])
+
+    def test_v3_literal_string_question_still_valid(self):
+        data = minimal_lesson()
+        data["scenes"][0]["question"] = "What happens when Beta throws?"
+        errors, warnings = build.validate(data)
+        self.assertEqual(errors, [])
+        self.assertEqual(warnings, [])
+
+    def test_inline_object_question_is_valid(self):
+        data = minimal_lesson()
+        data["scenes"][0]["question"] = {"kind": "freeRecall",
+                                         "prompt": "Reconstruct the flow."}
+        errors, warnings = build.validate(data)
+        self.assertEqual(errors, [])
+        self.assertEqual(warnings, [])
+
+    def test_registry_id_pattern(self):
+        data = self.question_lesson()
+        data["questions"]["bad id!"] = {"prompt": "x"}
+        assert_error(self, data, "id not [a-zA-Z0-9_]+")
+
+    def test_prompt_required(self):
+        data = self.question_lesson()
+        del data["questions"]["alpha_feeds_beta_v1"]["prompt"]
+        assert_error(self, data, "prompt required")
+
+    def test_bad_kind(self):
+        data = self.question_lesson()
+        data["questions"]["alpha_feeds_beta_v1"]["kind"] = "multipleChoice"
+        assert_error(self, data, "kind must be one of")
+
+    def test_bad_concept_id(self):
+        data = self.question_lesson()
+        data["questions"]["alpha_feeds_beta_v1"]["concepts"] = ["la:has space"]
+        assert_error(self, data, "concept id not")
+
+    def test_bad_version(self):
+        data = self.question_lesson()
+        data["questions"]["alpha_feeds_beta_v1"]["version"] = "1"
+        assert_error(self, data, "version must be an integer")
+
+    def test_expected_elements_checked_against_graph(self):
+        data = self.question_lesson()
+        data["questions"]["alpha_feeds_beta_v1"]["rubric"]["expectedElements"] = ["zz"]
+        assert_error(self, data, "expectedElements id 'zz'")
+
+    def test_expected_elements_accept_edge_ids(self):
+        data = self.question_lesson()
+        data["questions"]["alpha_feeds_beta_v1"]["rubric"]["expectedElements"] = ["b__c"]
+        self.assertEqual(errors_of(data), [])
+
+    def test_rubric_lists_must_be_strings(self):
+        data = self.question_lesson()
+        data["questions"]["alpha_feeds_beta_v1"]["rubric"]["misconceptions"] = [7]
+        assert_error(self, data, "rubric.misconceptions must be a list of strings")
+
+    def test_unreferenced_registry_question_warns(self):
+        data = self.question_lesson()
+        data["scenes"][0].pop("question")
+        _, warnings = build.validate(data)
+        self.assertTrue(any("never referenced" in w for w in warnings))
+
+    def test_idlike_literal_with_registry_warns(self):
+        data = self.question_lesson()
+        data["scenes"][0]["question"] = "alpha_feeds_beta_v2"
+        _, warnings = build.validate(data)
+        self.assertTrue(any("matches no entry" in w for w in warnings))
+
+    def test_consecutive_scene_questions_warn(self):
+        data = minimal_lesson()
+        data["scenes"].append({"id": "S2", "title": "Beta stores",
+                               "nodes": ["b", "c", "a"], "question": "Q2?"})
+        data["scenes"][0]["question"] = "Q1?"
+        _, warnings = build.validate(data)
+        self.assertTrue(any("consecutive scene questions" in w for w in warnings))
+
+    def test_story_recall_does_not_count_as_consecutive(self):
+        data = minimal_lesson()
+        data["scenes"][0]["question"] = "Q1?"
+        data["scenes"].append({
+            "id": "S2", "title": "The tale", "kind": "memoryStory",
+            "storyNodes": {"hero": {"label": "Hero"}},
+            "mapping": [{"story": "Hero", "technical": "Alpha",
+                         "storyNode": "hero", "technicalNodes": ["a"]}],
+            "recallQuestions": ["Who is the hero?"],
+        })
+        _, warnings = build.validate(data)
+        self.assertFalse(any("consecutive" in w for w in warnings))
+
+
+class CompatGoldens(unittest.TestCase):
+    """v4 must not change what v3 lessons validate to or materialize as."""
+
+    GOLDEN_SCENES = (
+        "<!-- SCENES:BEGIN generated by build.py from lesson-data; do not hand-edit -->\n"
+        '      <section class="diag scene" data-scene="S1">\n'
+        '<pre class="mermaid">\n'
+        "flowchart LR\n"
+        '  a["Alpha"]\n'
+        '  b["Beta"]\n'
+        '  c["Gamma"]\n'
+        '  a -->|"sends"| b\n'
+        "  b --> c\n"
+        "</pre>\n"
+        "      </section>\n"
+        "      <!-- SCENES:END -->"
+    )
+
+    def test_v3_fixture_validates_clean(self):
+        errors, warnings = build.validate(minimal_lesson())
+        self.assertEqual(errors, [])
+        self.assertEqual(warnings, [])
+
+    def test_v3_fixture_scenes_block_is_byte_identical(self):
+        self.assertEqual(build.scenes_block(minimal_lesson()), self.GOLDEN_SCENES)
+
+
 class ValidateStory(unittest.TestCase):
     def story_lesson(self):
         data = minimal_lesson()

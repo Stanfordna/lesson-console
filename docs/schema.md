@@ -8,6 +8,7 @@ materializes the diagram views into the HTML page.
 {
   "meta":         { ... },        required
   "graph":        { ... },        required — the single source of truth
+  "questions":    { ... },        optional — reusable typed questions (v4)
   "scenes":       [ ... ],        required — the guided walkthrough
   "levels":       [ ... ],        optional — the reference atlas
   "initialState": { ... }         optional — the LESSON_STATE baked at build
@@ -50,6 +51,43 @@ the shell's click-binding depends on this.
 | `style` | `solid` (default) or `dashed`. |
 | `id` | Defaults to `from__to`. **Parallel edges between the same pair need explicit distinct ids.** |
 
+## questions — reusable typed questions
+
+Questions have **identities independent of scenes**: scenes get split and
+reordered, and moving a question must not erase its relearning history (see
+the relearning-bank section of [authoring-guide.md](authoring-guide.md)).
+Registry entries are keyed by id (`[a-zA-Z0-9_]+`, convention `name_v1`):
+
+```json
+"questions": {
+  "dot_product_similarity_v1": {
+    "kind": "prediction",
+    "prompt": "Which vector should score higher, and why?",
+    "concepts": ["la:dot_product", "llm:similarity"],
+    "rubric": {
+      "expectedConcepts": ["directional alignment", "magnitude"],
+      "misconceptions": ["dot product is Euclidean distance"],
+      "expectedElements": ["dot", "q__k"]
+    },
+    "answer": "…",
+    "version": 1
+  }
+}
+```
+
+| field | notes |
+|---|---|
+| `prompt` | Required. The only part the page displays. |
+| `kind` | `freeRecall` (default), `cuedRecall`, `prediction`, `pretest`, `discrimination`, `application`, `transfer`, `calculation`, `explanation`, `ordering`. Shown as a small chip. |
+| `concepts` | Curriculum concept tags (`ns:name` or plain) — a separate namespace from graph node ids. Used by the cross-lesson manifest and relearning bank. |
+| `rubric` | The chat-side grading contract; **never rendered**. `expectedConcepts` / `misconceptions` are free text; `expectedElements` are graph node/edge ids (validated) for diagram-recall questions. |
+| `answer` | Optional model answer (chat-side reference; never rendered). |
+| `version` | Integer, default 1. Bump when rewording changes what the question tests; the relearning bank archives history and reschedules. |
+
+The learner always answers **in chat**; the page has no input widget by
+design. The driving assistant asks the question in its own words and grades
+the reasoning against the rubric.
+
 ## scenes — the guided walkthrough
 
 Ordered. Each scene is a *view* over the graph:
@@ -66,7 +104,7 @@ Ordered. Each scene is a *view* over the graph:
 | `relabel` | Per-scene label overrides `{ id: "text" }` (e.g. adding lifetimes on a detail view). |
 | `dir` | `LR` (default), `TD`, `RL`, `BT`. |
 | `annotation` | Markdown, ~30-80 words. What the diagram cannot show. |
-| `question` | Optional comprehension question. Displayed by the page; *asked in chat* by the driving assistant. |
+| `question` | Optional. A string that exactly matches a `questions` registry key is a **reference**; any other string is a **literal prompt** (v3 form); an inline object is an anonymous typed question. Displayed by the page; *asked in chat* by the driving assistant. |
 | `misconception` | Optional "an expert would assume X; here X is false" callout. |
 | `transition` | Optional one-line bridge to the next scene. |
 | `kind` | `scene` (default), `overview`, `recap`, `memoryStory`. |

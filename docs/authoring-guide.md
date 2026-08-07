@@ -62,14 +62,38 @@ Ask only where prediction or recall genuinely strengthens the model:
 - immediately before a **return to the overview** (consolidation);
 - at the **final synthesis**.
 
-**Never two scenes in a row.** Omit questions on setup scenes, and never ask
-something whose answer is a label currently on screen — for an expert
-audience that reads as condescension and adds load without benefit.
-*(expertise reversal)*
+**Pick the question `kind` by what it exercises**, and prefer registry
+questions (stable id + rubric) for anything worth re-asking later:
+
+- `prediction` at overviews and branches — commit before seeing the
+  consequence;
+- `pretest` immediately before revealing a misconception;
+- `freeRecall` at consolidation and synthesis — reconstruct without cues;
+- `cuedRecall` for notation decoding ("what does d_k denote here?");
+- `discrimination` when two plausible concepts get confused;
+- `application` / `transfer` / `calculation` mostly in review sessions —
+  they test the model against new examples;
+- `explanation` for "why is the attractive wrong answer wrong?";
+- `ordering` when sequence IS the construct.
+
+Write the rubric for the grader, not the learner: `expectedConcepts` the
+answer must touch, `misconceptions` to listen for, `expectedElements` only
+when the answer is literally part of the diagram.
+
+**Never two scenes in a row** (the validator warns). This is a
+guided-teaching heuristic, **not a global invariant**: memoryStory
+`recallQuestions` and prerequisite probes are *separate mechanisms* — a
+recap question followed by the story capstone's recall prompts is correct,
+not a violation. Review sessions driven from the relearning bank ask
+consecutive, interleaved questions on purpose. Omit questions on setup
+scenes, and never ask something whose answer is a label currently on
+screen — for an expert audience that reads as condescension and adds load
+without benefit. *(expertise reversal)*
 
 The page **displays** the question; the driving assistant **asks** it in
 chat, in its own words, and discusses the answer there. Learners never copy
-questions between surfaces.
+questions between surfaces, and the page deliberately has **no answer input**
+— grading happens in the conversation.
 
 ## Teaching experts
 

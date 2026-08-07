@@ -31,11 +31,17 @@ import sys
 from pathlib import Path
 
 ID_RE = re.compile(r"^[a-zA-Z0-9_]+$")
+# Concept ids are a curriculum namespace, separate from graph node ids:
+# optionally prefixed ("la:dot_product") or plain ("attention").
+CONCEPT_RE = re.compile(r"^[a-z0-9_]+:[a-zA-Z0-9_]+$|^[a-zA-Z0-9_]+$")
 DIRS = {"LR", "RL", "TD", "TB", "BT"}
 STYLES = {"solid", "dashed"}
 SHAPES = {"box", "decision", "round"}
 MODES = {"guided", "atlas"}
 SCENE_KINDS = {"overview", "scene", "recap", "memoryStory"}
+QUESTION_KINDS = {"freeRecall", "cuedRecall", "prediction", "pretest",
+                  "discrimination", "application", "transfer", "calculation",
+                  "explanation", "ordering"}
 
 SCENES_RE = re.compile(r"<!-- SCENES:BEGIN.*?<!-- SCENES:END -->", re.S)
 ATLAS_RE = re.compile(r"<!-- ATLAS:BEGIN.*?<!-- ATLAS:END -->", re.S)
@@ -190,6 +196,62 @@ def validate(data):
         if ok:
             valid_edges[eid] = e
 
+    def check_question(q, where):
+        """Shared checks for registry entries and inline scene questions."""
+        if not isinstance(q, dict):
+            errors.append(f"{where}: question must be a string or an object")
+            return
+        if not q.get("prompt") or not isinstance(q["prompt"], str):
+            errors.append(f"{where}: prompt required (non-empty string)")
+        if q.get("kind") is not None and q["kind"] not in QUESTION_KINDS:
+            errors.append(f"{where}: kind must be one of {sorted(QUESTION_KINDS)}")
+        if q.get("version") is not None and not isinstance(q["version"], int):
+            errors.append(f"{where}: version must be an integer")
+        for c in q.get("concepts") or []:
+            if not CONCEPT_RE.match(str(c)):
+                errors.append(f"{where}: concept id not [ns:]name: {c!r}")
+        rub = q.get("rubric")
+        if rub is None:
+            return
+        if not isinstance(rub, dict):
+            errors.append(f"{where}: rubric must be an object")
+            return
+        for k in ("expectedConcepts", "misconceptions"):
+            v = rub.get(k)
+            if v is not None and (not isinstance(v, list)
+                                  or not all(isinstance(x, str) for x in v)):
+                errors.append(f"{where}: rubric.{k} must be a list of strings")
+        for el in rub.get("expectedElements") or []:
+            if el not in nodes and el not in edge_ids:
+                errors.append(f"{where}: rubric.expectedElements id {el!r} is "
+                              "neither a node nor an edge id")
+
+    question_bank = data.get("questions")
+    if question_bank is None:
+        question_bank = {}
+    if not isinstance(question_bank, dict):
+        errors.append("questions: must be an object of id -> question")
+        question_bank = {}
+    for qid, q in question_bank.items():
+        if not ID_RE.match(str(qid)):
+            errors.append(f"questions: id not [a-zA-Z0-9_]+: {qid!r}")
+        check_question(q, f"questions.{qid}")
+    referenced_questions = set()
+
+    def check_scene_question(raw, where):
+        """A scene question is a registry reference, a v3 literal string, or
+        an inline object. A registry-key match on a string is a reference;
+        any other string is a literal prompt (v3 compatibility)."""
+        if isinstance(raw, str):
+            if raw in question_bank:
+                referenced_questions.add(raw)
+            elif question_bank and ID_RE.match(raw):
+                warnings.append(f"{where}: question {raw!r} looks like a "
+                                "registry id but matches no entry; it will be "
+                                "shown as a literal prompt")
+            return
+        check_question(raw, f"{where}: question")
+
     def check_view(v, where, allow_big):
         """Shared checks for scenes and atlas levels (both are graph views)."""
         if v.get("syntax") is not None:
@@ -260,6 +322,8 @@ def validate(data):
             errors.append(f"{where}: title required")
         if sc.get("kind") is not None and sc["kind"] not in SCENE_KINDS:
             errors.append(f"{where}: kind must be one of {sorted(SCENE_KINDS)}")
+        if sc.get("question") is not None:
+            check_scene_question(sc["question"], where)
 
         if sc.get("kind") == "memoryStory":
             snodes = sc.get("storyNodes")
@@ -321,6 +385,20 @@ def validate(data):
                         errors.append(f"{where}: recallQuestions[{j}].refs id {r!r} unknown")
         else:
             check_view(sc, where, allow_big=False)
+
+    # "Never two scene questions in a row" is a guided-teaching heuristic,
+    # not a global invariant: memoryStory recallQuestions and prereq probes
+    # are separate mechanisms and never trip this.
+    main_seq = [sc for sc in scenes if isinstance(sc, dict)
+                and sc.get("kind") not in ("memoryStory", "prereq")]
+    for prev, cur in zip(main_seq, main_seq[1:]):
+        if prev.get("question") is not None and cur.get("question") is not None:
+            warnings.append(f"scenes {prev.get('id')} and {cur.get('id')}: "
+                            "consecutive scene questions (guided-teaching "
+                            "heuristic; split or drop one)")
+    for qid in question_bank:
+        if qid not in referenced_questions:
+            warnings.append(f"questions.{qid}: never referenced by a scene")
 
     levels = data.get("levels")
     if levels is None:

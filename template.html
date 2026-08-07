@@ -47,12 +47,25 @@ const LESSON_STATE = {"mode":"guided","scene":"S1","focus":[],"note":null,"pulse
       { "from": "beta", "to": "gamma", "label": "writes", "style": "dashed" }
     ]
   },
+  "questions": {
+    "gamma_on_beta_failure_v1": {
+      "kind": "prediction",
+      "prompt": "What happens to Gamma if Beta throws?",
+      "concepts": ["sample:async_failure"],
+      "rubric": {
+        "expectedConcepts": ["fire-and-forget write", "no error propagation"],
+        "misconceptions": ["a failed write rolls Alpha back"],
+        "expectedElements": ["gamma", "beta__gamma"]
+      },
+      "version": 1
+    }
+  },
   "scenes": [
     { "id": "S1", "kind": "overview", "title": "Alpha drives everything",
       "claim": "Alpha is the only entry point; everything downstream reacts to it.",
       "nodes": ["alpha", "beta", "gamma"], "focus": ["alpha"],
       "annotation": "The whole sample system in one frame. Beta only runs when Alpha calls it, and Gamma is written asynchronously.",
-      "question": "What happens to Gamma if Beta throws?" },
+      "question": "gamma_on_beta_failure_v1" },
     { "id": "S2", "title": "Beta writes async",
       "claim": "Beta's write to Gamma is fire-and-forget - failures are invisible.",
       "nodes": ["alpha", "beta", "gamma"], "focus": ["gamma"],
@@ -168,7 +181,7 @@ flowchart LR
   <div id="annot" class="guided-only">
     <div id="annotClaim"></div>
     <div id="annotBody"></div>
-    <div id="annotQuestion" hidden><span class="q-mark">?</span><span id="questionText"></span></div>
+    <div id="annotQuestion" hidden><span class="q-mark">?</span><span id="questionKind" class="q-kind" hidden></span><span id="questionText"></span></div>
     <div id="annotMisc" hidden><span class="m-mark">&#9888;</span><span id="miscText"></span></div>
     <div id="storyExtras" hidden>
       <button id="storyToggle" type="button">Show the literal diagram</button>
@@ -361,6 +374,10 @@ flowchart LR
     font-size: 13.5px; color: var(--trail); }
   #annotQuestion[hidden] { display: none; }
   .q-mark { font-weight: 800; flex: none; }
+  .q-kind { flex: none; align-self: center; font: 700 10px ui-sans-serif, sans-serif;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--trail);
+    border: 1px solid var(--trail); border-radius: 999px; padding: 1px 8px; }
+  .q-kind[hidden] { display: none; }
   #annotMisc { display: flex; gap: 8px; align-items: baseline; margin-top: 8px;
     padding: 8px 11px; background: rgba(247,118,142,.08); border: 1px solid rgba(247,118,142,.25);
     border-radius: 9px; font-size: 13.5px; color: var(--danger); }
@@ -947,14 +964,33 @@ flowchart LR
     saveUI({ scene: sc.id });
   }
 
+  /* A string question naming a registry entry is a reference; any other
+     string is a literal prompt (v3 lessons). Rubric/answer never render —
+     they are the chat-side grading contract. */
+  function resolveQuestion(raw) {
+    if (!raw) return null;
+    if (typeof raw === 'string') {
+      var reg = D.questions || {};
+      return reg[raw] || { prompt: raw };
+    }
+    return raw.prompt ? raw : null;
+  }
+  function kindLabel(k) {
+    return String(k).replace(/([A-Z])/g, ' $1').toLowerCase();
+  }
+
   function renderAnnot(sc) {
     $('annotClaim').textContent = sc.claim || '';
     $('annotBody').innerHTML = sc.annotation ? md(sc.annotation) : '';
     var isStory = sc.kind === 'memoryStory';
     /* story recall prompts are asked in chat, not shown as the scene question */
-    var q = sc.question;
+    var q = resolveQuestion(sc.question);
     $('annotQuestion').hidden = !q;
-    if (q) $('questionText').textContent = q;
+    if (q) {
+      $('questionText').textContent = q.prompt;
+      $('questionKind').hidden = !q.kind;
+      if (q.kind) $('questionKind').textContent = kindLabel(q.kind);
+    }
     $('annotMisc').hidden = !sc.misconception;
     if (sc.misconception) $('miscText').textContent = sc.misconception;
     $('annotTransition').hidden = !sc.transition;
