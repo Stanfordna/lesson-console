@@ -60,6 +60,35 @@ items in a narrow (~500px) window.
 - [ ] Set `"focus": ["auth_code"]` with a revision bump: ad-hoc highlight
       appears; then reload without a bump: highlight survives.
 
+## Prereq detours (v4)
+
+- [ ] Prereq scenes are absent from the counter, the jump list, and
+      prev/next order.
+- [ ] Set `"scene": "<prereq id>", "detour": {"returnTo": "<scene>"}` with a
+      revision bump: detour chrome appears (↩ badge, frozen progress, prev
+      disabled), and Next (↩) returns to `returnTo` and clears the detour.
+- [ ] Reload mid-detour WITHOUT a revision bump: still detoured to the same
+      prereq scene.
+- [ ] A scene with a `prereqProbe` shows the CHECKPOINT box (distinct from
+      the question box).
+
+## Occlusion and edge focus (v4)
+
+- [ ] ••• menu "Hide labels": node and edge labels blank, layout intact;
+      "Show labels" restores; changing scene clears occlusion.
+- [ ] Set `"occlude": true` with a revision bump: labels blank after reload.
+- [ ] Clicking an occluded node reveals its label and opens the sheet;
+      other labels stay hidden.
+- [ ] Set `"focus": ["<edge id>"]` with a revision bump: the edge (not a
+      node) highlights in the focus color.
+
+## Links and entry (v4)
+
+- [ ] Open `lesson.html?scene=<later scene>`: page starts there. Navigate
+      away, reload the same URL: position sticks (deep link applies once).
+- [ ] A relative link in a node detail (`[x](./other.html)`) navigates in
+      the same tab; http(s) links still open a new tab.
+
 ## Degradation
 
 - [ ] Temporarily corrupt one scene's Mermaid block by hand: that scene shows

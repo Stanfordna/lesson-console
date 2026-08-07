@@ -516,6 +516,52 @@ class ValidateStory(unittest.TestCase):
         assert_error(self, data, "literalScene 'S9'")
 
 
+class ValidateEdgeFocusAndOcclude(unittest.TestCase):
+    def test_scene_focus_accepts_implicit_view_edge(self):
+        data = minimal_lesson()
+        data["scenes"][0]["focus"] = ["a__b"]
+        self.assertEqual(errors_of(data), [])
+
+    def test_scene_focus_accepts_explicit_view_edge_only(self):
+        data = minimal_lesson()
+        data["scenes"][0]["edges"] = ["a__b"]
+        data["scenes"][0]["focus"] = ["b__c"]  # exists, but not in this view
+        assert_error(self, data, "focus 'b__c' not in nodes")
+
+    def test_scene_focus_rejects_edge_outside_cast(self):
+        data = minimal_lesson()
+        data["scenes"][0]["nodes"] = ["a", "b"]
+        data["scenes"][0]["focus"] = ["b__c"]
+        assert_error(self, data, "focus 'b__c' not in nodes")
+
+    def test_initial_state_focus_accepts_edge_ids(self):
+        data = minimal_lesson()
+        data["initialState"] = {"revision": 1, "focus": ["a__b", "b"]}
+        self.assertEqual(errors_of(data), [])
+
+    def test_initial_state_occlude(self):
+        data = minimal_lesson()
+        data["initialState"] = {"revision": 1, "occlude": True}
+        self.assertEqual(errors_of(data), [])
+        data["initialState"]["occlude"] = ["a", "a__b"]
+        self.assertEqual(errors_of(data), [])
+        data["initialState"]["occlude"] = ["zz"]
+        assert_error(self, data, "occlude id 'zz' unknown")
+        data["initialState"]["occlude"] = "yes"
+        assert_error(self, data, "occlude: must be true, false, or a list")
+
+    def test_src_url_relative_allowed_schemes_rejected(self):
+        data = minimal_lesson()
+        data["graph"]["nodes"]["a"]["src"] = [
+            {"label": "sibling", "url": "./other-lesson.html?scene=S2"}]
+        self.assertEqual(errors_of(data), [])
+        data["graph"]["nodes"]["a"]["src"] = [
+            {"label": "bad", "url": "javascript:alert(1)"}]
+        assert_error(self, data, "must be http(s) or relative")
+        data["graph"]["nodes"]["a"]["src"] = [{"label": "bare", "url": "x.html"}]
+        assert_error(self, data, "must be http(s) or relative")
+
+
 class ValidateInitialState(unittest.TestCase):
     def test_revision_required(self):
         data = minimal_lesson()

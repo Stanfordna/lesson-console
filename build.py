@@ -164,8 +164,9 @@ def validate(data):
                 errors.append(f"graph.nodes.{nid}: src[{j}] must be an object")
                 continue
             if s.get("url"):
-                if not re.match(r"^https?://", str(s["url"])):
-                    errors.append(f"graph.nodes.{nid}: src[{j}].url must be http(s)")
+                if not re.match(r"^https?://|^\.\.?/", str(s["url"])):
+                    errors.append(f"graph.nodes.{nid}: src[{j}].url must be "
+                                  "http(s) or relative (./ or ../)")
             elif not s.get("path"):
                 errors.append(f"graph.nodes.{nid}: src[{j}] needs a path or a url")
             if s.get("endLine") is not None and s.get("line") is None:
@@ -276,9 +277,16 @@ def validate(data):
         for nid in cast:
             if nid not in nodes:
                 errors.append(f"{where}: unknown node {nid!r}")
+        # focus accepts edge ids too, as long as the edge is part of the view
+        # (explicitly listed, or implicit: both endpoints in the cast)
+        if v.get("edges") is not None:
+            view_edges = {eid for eid in v["edges"] if eid in valid_edges}
+        else:
+            view_edges = {eid for eid, e in valid_edges.items()
+                          if e["from"] in cast_set and e["to"] in cast_set}
         for f in v.get("focus") or []:
-            if f not in cast_set:
-                errors.append(f"{where}: focus {f!r} not in nodes")
+            if f not in cast_set and f not in view_edges:
+                errors.append(f"{where}: focus {f!r} not in nodes or view edges")
         if v.get("focus") is not None and not isinstance(v["focus"], list):
             errors.append(f"{where}: focus must be a list")
         if v.get("edges") is not None:
@@ -494,8 +502,17 @@ def validate(data):
             if state.get("level") is not None and state["level"] not in level_ids:
                 errors.append(f"initialState.level {state['level']!r} is not a level id")
             for f in state.get("focus") or []:
-                if f not in nodes:
+                if f not in nodes and f not in edge_ids:
                     errors.append(f"initialState.focus id {f!r} unknown")
+            occ = state.get("occlude")
+            if occ is not None and not isinstance(occ, bool):
+                if not isinstance(occ, list):
+                    errors.append("initialState.occlude: must be true, false, "
+                                  "or a list of node/edge ids")
+                else:
+                    for f in occ:
+                        if f not in nodes and f not in edge_ids:
+                            errors.append(f"initialState.occlude id {f!r} unknown")
             det = state.get("detour")
             if det is not None:
                 if not isinstance(det, dict) or not det.get("returnTo"):

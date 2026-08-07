@@ -184,6 +184,12 @@ Baked into the page's `LESSON_STATE` line at build time:
   the learner to a specific map.
 - `detour` (optional) is `{ "returnTo": "<non-prereq scene id>" }` — set it
   together with `scene` pointing at a prereq scene (see the prereq section).
+- `occlude` (optional): `true` blanks every node/edge label on the current
+  scene (a recall drill — recall is graded in chat); a list of node/edge ids
+  blanks just those. Clicking an occluded node reveals its label. Occlusion
+  clears when the learner changes scene.
+- `focus` accepts **edge ids** as well as node ids — highlight a traversal
+  with `"focus": ["authz__token"]`.
 
 ## Builder CLI
 
