@@ -29,8 +29,10 @@ items in a narrow (~500px) window.
 
 - [ ] Clicking a node opens the detail sheet (summary, detail markdown,
       source links, related chips); clicking a related chip navigates.
-- [ ] Zoom + / − / fit work; **zooming far in stays reachable — scroll to the
-      diagram's left/top edge** (the v3 overflow regression).
+- [ ] The zoom dock sits bottom-right of the diagram in BOTH modes and hides
+      while the detail sheet is open; + / − / Fit / 1:1 all work.
+- [ ] **Zooming far in stays reachable — scroll to the diagram's left/top
+      edge** (the v3 overflow regression).
 - [ ] Resize the window: the active diagram refits; no garbage zoom persists
       after shrinking the pane very small and restoring. *
 
