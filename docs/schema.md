@@ -265,7 +265,21 @@ python3 build.py lesson.json --template template.html --output lesson.html --che
 
 # validate a cross-lesson manifest + relearning bank; writes nothing
 python3 build.py --manifest path/to/lessons.json
+
+# validate, then write the lessons index page beside the manifest
+python3 build.py --manifest path/to/lessons.json --index
+python3 build.py --manifest path/to/lessons.json --index --check
 ```
+
+The index page (`index.html`) is the landing page for the lesson library:
+what is **due for review** today, deep-linked straight to the scene
+(`lesson.html?scene=S4`) and labelled with the question's actual wording,
+followed by every lesson with its scene count and concept tags, and any
+lesson file in the directory that the manifest doesn't list. Due-ness is
+computed **in the page** from embedded bank data rather than baked in at
+build time, so the file stays deterministic (`--check` safe) and the list is
+still correct tomorrow without regenerating anything. Nothing is written if
+validation fails.
 
 Output is deterministic (same input → byte-identical output) and written
 atomically. In JSON mode the builder copies the vendored `mermaid.min.js`

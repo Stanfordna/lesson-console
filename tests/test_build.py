@@ -9,6 +9,7 @@ CLI's json/html modes. Validation must never raise on malformed data.
 
 import contextlib
 import copy
+import datetime
 import io
 import json
 import sys
@@ -898,6 +899,90 @@ class ManifestAndBank(unittest.TestCase):
         self.write_bank(self.bank(nextDue="tomorrow"))
         code, out = self.run_manifest()
         self.assertIn("ISO date", out)
+
+
+class IndexGenerator(ManifestAndBank):
+    """The index page is generated from the same validated manifest context."""
+
+    def run_index(self, extra=None):
+        return run_cli(["--manifest", str(self.dir / "lessons.json"), "--index"]
+                       + (extra or []))
+
+    def index_text(self):
+        return (self.dir / "index.html").read_text(encoding="utf-8")
+
+    def test_index_lists_lessons(self):
+        self.write_manifest(self.manifest())
+        code, out = self.run_index()
+        self.assertEqual(code, 0)
+        self.assertIn("indexed 2 lesson(s)", out)
+        html = self.index_text()
+        self.assertIn("<title>Lessons</title>", html)
+        self.assertIn('href="one.html"', html)
+        self.assertIn('href="two.html"', html)
+        self.assertIn("sample:flow", html)
+
+    def test_index_is_deterministic(self):
+        self.write_manifest(self.manifest())
+        self.run_index()
+        first = self.index_text()
+        self.run_index()
+        self.assertEqual(first, self.index_text())
+
+    def test_index_check_detects_stale(self):
+        self.write_manifest(self.manifest())
+        self.run_index()
+        code, out = self.run_index(["--check"])
+        self.assertEqual(code, 0)
+        self.assertIn("up to date", out)
+        (self.dir / "index.html").write_text("tampered", encoding="utf-8")
+        code, out = self.run_index(["--check"])
+        self.assertEqual(code, 1)
+        self.assertIn("STALE", out)
+
+    def test_index_embeds_bank_with_deep_links_and_prompts(self):
+        self.write_manifest(self.manifest())
+        self.write_bank(self.bank())
+        self.run_index()
+        html = self.index_text()
+        self.assertIn('"href": "one.html?scene=S1"', html)
+        self.assertIn('"nextDue": "2026-08-09"', html)
+        # the prompt is resolved from the lesson's question registry, not the id
+        self.assertIn('"prompt": "?"', html)
+
+    def test_index_omits_dates_so_it_never_goes_stale_overnight(self):
+        """Due-ness is computed client-side; no build date may be baked in."""
+        self.write_manifest(self.manifest())
+        self.write_bank(self.bank())
+        self.run_index()
+        html = self.index_text()
+        today = datetime.date.today().isoformat()
+        self.assertNotIn(today, html)
+        self.assertIn("new Date()", html)
+
+    def test_index_flags_unlisted_lesson_files(self):
+        self.write_manifest(self.manifest())
+        (self.dir / "stray.html").write_text("<html></html>", encoding="utf-8")
+        self.run_index()
+        self.assertIn("stray.html", self.index_text())
+        self.assertIn("Not in the manifest", self.index_text())
+
+    def test_index_escapes_html_in_titles(self):
+        man = self.manifest()
+        man["lessons"][0]["title"] = '<script>alert("x")</script>'
+        self.write_manifest(man)
+        self.run_index()
+        html = self.index_text()
+        self.assertNotIn('<script>alert("x")</script>', html)
+        self.assertIn("&lt;script&gt;", html)
+
+    def test_index_not_written_when_validation_fails(self):
+        man = self.manifest()
+        man["lessons"][0]["path"] = "gone.html"
+        self.write_manifest(man)
+        code, _ = self.run_index()
+        self.assertEqual(code, 1)
+        self.assertFalse((self.dir / "index.html").exists())
 
 
 if __name__ == "__main__":

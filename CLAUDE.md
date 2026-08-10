@@ -131,7 +131,11 @@ questionId+version, lesson/scene are just presentation metadata):
   interleave concepts across lessons, open each via its deep link, ask in
   chat (mix kinds — recall, application, transfer), grade, reschedule.
   Withhold explanations until after the attempt.
-- Validate after editing: `python3 build.py --manifest lessons.json`.
+- Validate after editing: `python3 build.py --manifest lessons.json`, and
+  regenerate the library landing page with
+  `python3 build.py --manifest lessons.json --index` (writes `index.html`
+  beside the manifest: what's due today, deep-linked; then every lesson).
+  Do this whenever you add a lesson or change the bank.
 - Never add streaks, points, badges, or engagement metrics.
 
 ## Repo conventions

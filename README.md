@@ -93,6 +93,9 @@ it honest.
   links (applied once, never fighting the learner's navigation), relative
   lesson-to-lesson links, and a `lessons.json` manifest + `relearning.json`
   successive-relearning bank validated by `build.py --manifest`.
+- **A library index** — `build.py --manifest lessons.json --index` generates
+  the landing page for a lesson directory: what's due for review today
+  (deep-linked to the exact scene), then every lesson with its concepts.
 - **Mouse-first, keyboard-friendly** — prev/next buttons, jump list, click-
   to-open details (nothing ever auto-opens), Escape closes overlays, arrow
   keys work when no dialog is open.

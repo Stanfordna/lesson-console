@@ -681,20 +681,35 @@ def load_lesson_data(path):
     return load_data_from_html(text, path)
 
 
+def scene_question_prompt(scene, registry):
+    """Resolve a scene's displayed question text (registry ref, literal, or
+    inline object), mirroring the shell's resolveQuestion()."""
+    raw = scene.get("question")
+    if isinstance(raw, str):
+        entry = registry.get(raw)
+        return (entry or {}).get("prompt") if isinstance(entry, dict) else raw
+    if isinstance(raw, dict):
+        return raw.get("prompt")
+    return None
+
+
 def validate_manifest(manifest_path):
     """Validate a lessons.json manifest, and relearning.json beside it.
 
-    Returns (errors, warnings); reads lesson files best-effort to check
-    scene references and cross-lesson question-id uniqueness.
+    Returns (errors, warnings, ctx); reads lesson files best-effort to check
+    scene references and cross-lesson question-id uniqueness. ctx carries what
+    the index generator needs so lessons are read exactly once.
     """
     errors, warnings = [], []
     base = manifest_path.parent
+    ctx = {"base": base, "manifest": {}, "lessons": [], "bank": []}
     try:
         man = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
-        return [f"{manifest_path}: {e}"], []
+        return [f"{manifest_path}: {e}"], [], ctx
     if not isinstance(man, dict):
-        return [f"{manifest_path}: manifest must be a JSON object"], []
+        return [f"{manifest_path}: manifest must be a JSON object"], [], ctx
+    ctx["manifest"] = man
 
     concepts = man.get("concepts") or {}
     if not isinstance(concepts, dict):
@@ -735,8 +750,13 @@ def validate_manifest(manifest_path):
                     warnings.append(f"lesson {lid}: {k} tag {t!r} not in the "
                                     "concepts registry")
         provided.update(les.get("provides") or [])
-        info = {"scenes": None, "questions": None}
+        info = {"scenes": None, "questions": None, "id": lid,
+                "title": les.get("title") or lid, "path": les.get("path"),
+                "provides": list(les.get("provides") or []),
+                "requires": list(les.get("requires") or []),
+                "mainScenes": None, "prompts": {}, "scenePrompts": {}}
         lesson_info[lid] = info
+        ctx["lessons"].append(info)
         p = les.get("path")
         if not p:
             errors.append(f"lesson {lid}: path required")
@@ -752,10 +772,25 @@ def validate_manifest(manifest_path):
             continue
         if not isinstance(data, dict):
             continue
-        info["scenes"] = {sc.get("id") for sc in data.get("scenes") or []
-                          if isinstance(sc, dict)}
+        scenes = [sc for sc in data.get("scenes") or [] if isinstance(sc, dict)]
+        info["scenes"] = {sc.get("id") for sc in scenes}
         qs = data.get("questions")
         info["questions"] = set(qs) if isinstance(qs, dict) else set()
+        # index-page material: main-sequence length and question prompts, so
+        # a due item can be shown as its actual wording rather than an id
+        info["mainScenes"] = sum(1 for sc in scenes if sc.get("kind") != "prereq")
+        if isinstance(qs, dict):
+            for qid, q in qs.items():
+                if isinstance(q, dict) and q.get("prompt"):
+                    info["prompts"][qid] = q["prompt"]
+        for sc in scenes:
+            prompt = scene_question_prompt(sc, qs if isinstance(qs, dict) else {})
+            if prompt and sc.get("id"):
+                info["scenePrompts"][sc["id"]] = prompt
+        if not info["title"] or info["title"] == lid:
+            meta_title = (data.get("meta") or {}).get("title")
+            if meta_title:
+                info["title"] = meta_title
         for qid in sorted(info["questions"]):
             if qid in qid_owner and qid_owner[qid] != lid:
                 errors.append(f"question id {qid!r} defined by both "
@@ -771,13 +806,13 @@ def validate_manifest(manifest_path):
 
     bank_path = base / "relearning.json"
     if bank_path.exists():
-        b_err, b_warn = validate_bank(bank_path, lesson_info, qid_owner)
+        b_err, b_warn = validate_bank(bank_path, lesson_info, qid_owner, ctx)
         errors += b_err
         warnings += b_warn
-    return errors, warnings
+    return errors, warnings, ctx
 
 
-def validate_bank(bank_path, lesson_info, qid_owner):
+def validate_bank(bank_path, lesson_info, qid_owner, ctx=None):
     """Validate relearning.json items against the manifest's lessons."""
     errors, warnings = [], []
     try:
@@ -787,6 +822,8 @@ def validate_bank(bank_path, lesson_info, qid_owner):
     items = bank.get("items") if isinstance(bank, dict) else None
     if not isinstance(items, list):
         return [f"{bank_path.name}: items list required"], []
+    if ctx is not None:
+        ctx["bank"] = [it for it in items if isinstance(it, dict)]
     for i, it in enumerate(items):
         where = f"{bank_path.name} items[{i}]"
         if not isinstance(it, dict):
@@ -839,6 +876,150 @@ def validate_bank(bank_path, lesson_info, qid_owner):
     return errors, warnings
 
 
+def hesc(s):
+    """Escape text for HTML body/attribute use."""
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+INDEX_CSS = """
+:root { color-scheme: light dark;
+  --bg:#090d17; --panel:#101628; --ink:#dfe6f5; --muted:#98a3c6;
+  --line:#26304f; --accent:#7c9cff; --accent-soft:#1c2748; --focus:#ff9e64;
+  --ok:#5ad1a0; --danger:#f7768e; }
+@media (prefers-color-scheme: light) { :root {
+  --bg:#f6f8fd; --panel:#ffffff; --ink:#131a2c; --muted:#525c78;
+  --line:#d3dcf0; --accent:#3457d5; --accent-soft:#e6ecfe; --focus:#c2410c;
+  --ok:#047857; --danger:#b91c1c; } }
+* { box-sizing:border-box; margin:0; }
+body { background:var(--bg); color:var(--ink); padding:28px 22px 60px;
+  font:15px/1.55 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+main { max-width:820px; margin:0 auto; }
+h1 { font-size:20px; font-weight:800; }
+.sub { color:var(--muted); font-size:13px; margin-top:3px; }
+h2 { font:700 11px ui-sans-serif, sans-serif; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--muted); margin:26px 0 9px; }
+a { color:inherit; text-decoration:none; }
+.card { display:block; background:var(--panel); border:1px solid var(--line);
+  border-radius:11px; padding:11px 14px; margin-bottom:7px; }
+.card:hover { border-color:var(--accent); }
+.row { display:flex; align-items:baseline; gap:10px; }
+.title { font-weight:700; font-size:14.5px; flex:1; min-width:0; }
+.meta { color:var(--muted); font-size:12px; font-family:ui-monospace, monospace;
+  flex:none; }
+.prompt { color:var(--ink); font-size:13.5px; }
+.tags { margin-top:5px; display:flex; flex-wrap:wrap; gap:5px; }
+.tag { font:600 11px ui-monospace, monospace; color:var(--muted);
+  border:1px solid var(--line); border-radius:999px; padding:1px 8px; }
+.due { color:var(--focus); }
+.overdue { color:var(--danger); }
+.empty { color:var(--muted); font-size:13px; font-style:italic; }
+.unlisted { color:var(--muted); font-size:12.5px; font-family:ui-monospace, monospace; }
+footer { margin-top:32px; color:var(--muted); font-size:11.5px; }
+code { font:12px ui-monospace, monospace; background:var(--accent-soft);
+  border-radius:4px; padding:1px 5px; }
+"""
+
+INDEX_JS = """
+/* Due-ness is computed here, not baked at build time: the generated file
+   stays deterministic (--check safe) and the list is correct every morning
+   without regenerating anything. */
+(function () {
+  var items = window.__BANK__ || [];
+  var host = document.getElementById('due');
+  var today = new Date().toISOString().slice(0, 10);
+  var due = items.filter(function (it) {
+    return !it.retired && it.nextDue && it.nextDue <= today;
+  }).sort(function (a, b) { return a.nextDue < b.nextDue ? -1 : 1; });
+  document.getElementById('dueCount').textContent = due.length;
+  if (!due.length) {
+    host.innerHTML = '<p class="empty">Nothing due today.</p>';
+    return;
+  }
+  host.innerHTML = due.map(function (it) {
+    var days = Math.round((new Date(today) - new Date(it.nextDue)) / 86400000);
+    var when = days > 0 ? '<span class="overdue">' + days + 'd overdue</span>'
+                        : '<span class="due">due today</span>';
+    return '<a class="card" href="' + it.href + '">' +
+      '<div class="row"><span class="prompt">' + it.prompt + '</span>' +
+      '<span class="meta">' + when + '</span></div>' +
+      '<div class="tags"><span class="tag">' + it.lessonTitle + '</span>' +
+      '<span class="tag">' + it.scene + '</span>' +
+      (it.result ? '<span class="tag">last: ' + it.result + '</span>' : '') +
+      '</div></a>';
+  }).join('');
+})();
+"""
+
+
+def index_html(ctx):
+    """Render the lessons index page from validated manifest context."""
+    lessons = sorted(ctx["lessons"], key=lambda l: str(l["title"]).lower())
+    by_id = {l["id"]: l for l in ctx["lessons"]}
+
+    bank = []
+    for it in ctx["bank"]:
+        qid = str(it.get("questionId") or "")
+        lid = it.get("lesson")
+        scene = it.get("scene")
+        les = by_id.get(lid)
+        if les is None and "/" in qid:
+            les = by_id.get(qid.split("/")[0])
+            scene = scene or qid.split("/")[1]
+        if les is None or not les.get("path"):
+            continue
+        prompt = les["prompts"].get(qid)
+        if not prompt and scene:
+            prompt = les["scenePrompts"].get(scene)
+        href = les["path"] + (f"?scene={scene}" if scene else "")
+        bank.append({"prompt": prompt or qid, "href": href, "scene": scene or "",
+                     "lessonTitle": les["title"], "nextDue": it.get("nextDue"),
+                     "result": it.get("result"), "retired": bool(it.get("retired"))})
+
+    listed = {l.get("path") for l in ctx["lessons"]}
+    unlisted = sorted(p.name for p in ctx["base"].glob("*.html")
+                      if p.name != "index.html" and p.name not in listed)
+
+    rows = []
+    for l in lessons:
+        meta = []
+        if l["mainScenes"]:
+            meta.append(f"{l['mainScenes']} scenes")
+        tags = "".join(f'<span class="tag">{hesc(t)}</span>'
+                       for t in l["provides"])
+        missing = "" if l.get("path") and (ctx["base"] / l["path"]).exists() \
+            else '<span class="tag" style="color:var(--danger)">missing file</span>'
+        rows.append(
+            f'<a class="card" href="{hesc(l.get("path") or "")}">'
+            f'<div class="row"><span class="title">{hesc(l["title"])}</span>'
+            f'<span class="meta">{hesc(" · ".join(meta))}</span></div>'
+            + (f'<div class="tags">{tags}{missing}</div>' if tags or missing else "")
+            + "</a>")
+
+    unlisted_html = ""
+    if unlisted:
+        items = "".join(f'<div class="unlisted">{hesc(n)}</div>' for n in unlisted)
+        unlisted_html = ("<h2>Not in the manifest</h2>" + items +
+                         '<p class="empty">Add them to lessons.json to index them.</p>')
+
+    return (
+        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        "<title>Lessons</title>\n<style>" + INDEX_CSS + "</style>\n</head>\n<body>\n"
+        "<main>\n"
+        "<h1>Lessons</h1>\n"
+        f'<p class="sub">{len(lessons)} lesson(s) · '
+        '<span id="dueCount">0</span> due for review</p>\n'
+        "<h2>Due for review</h2>\n<div id=\"due\"></div>\n"
+        "<h2>All lessons</h2>\n" + "\n".join(rows) + "\n"
+        + unlisted_html +
+        "\n<footer>Generated by build.py --index from lessons.json. "
+        "Serve with <code>dev up lc</code>.</footer>\n"
+        "</main>\n<script>window.__BANK__ = "
+        + json_for_script(bank) + ";</script>\n<script>" + INDEX_JS
+        + "</script>\n</body>\n</html>\n")
+
+
 def report(path, errors, warnings):
     for w in warnings:
         print(f"  WARNING {w}")
@@ -861,16 +1042,34 @@ def run(argv=None):
     ap.add_argument("--manifest", metavar="LESSONS_JSON",
                     help="validate a lessons.json manifest (and a "
                          "relearning.json beside it); writes nothing")
+    ap.add_argument("--index", action="store_true",
+                    help="with --manifest: also write the lessons index page "
+                         "(default: index.html beside the manifest)")
     args = ap.parse_args(argv)
 
     if args.manifest:
-        if args.inputs or args.template or args.output:
+        if args.inputs or args.template or (args.output and not args.index):
             print("ERROR: --manifest takes no other inputs")
             return 2
-        errors, warnings = validate_manifest(Path(args.manifest))
+        errors, warnings, ctx = validate_manifest(Path(args.manifest))
         if not report(args.manifest, errors, warnings):
             return 1
-        print(f"{args.manifest}: manifest ok")
+        if not args.index:
+            print(f"{args.manifest}: manifest ok")
+            return 0
+        dest = Path(args.output) if args.output \
+            else Path(args.manifest).parent / "index.html"
+        out = index_html(ctx)
+        if args.check:
+            current = dest.read_text(encoding="utf-8") if dest.exists() else None
+            if current != out:
+                print(f"{dest}: STALE (rebuild would change it)")
+                return 1
+            print(f"{dest}: up to date")
+            return 0
+        atomic_write(dest, out)
+        print(f"{dest}: indexed {len(ctx['lessons'])} lesson(s), "
+              f"{len(ctx['bank'])} bank item(s)")
         return 0
     if not args.inputs:
         print("ERROR: lesson inputs required (or --manifest)")
