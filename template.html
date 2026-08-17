@@ -728,7 +728,29 @@ flowchart LR
       var c = sv.querySelectorAll('g.node').length;
       if (c > bestCount) { best = sv; bestCount = c; }
     });
-    if (!best || bestCount === 0) return false;
+    if (!best || bestCount === 0) {
+      /* Non-flowchart diagrams (sequenceDiagram, stateDiagram-v2, erDiagram)
+         render correctly but expose no g.node, so they can never bind. Treat a
+         clean render as displayed-but-unbindable: no click-to-detail, but the
+         error fallback must not fire and the source must stay visible. */
+      var okSvg = null;
+      svgs.forEach(function (sv) {
+        if (!sv.querySelector('.error-icon') && sv.querySelector('text')) okSvg = sv;
+      });
+      if (okSvg) {
+        /* the pre wrapper sizes to content, so widen it too or the svg's
+           width:100% resolves against a few hundred pixels */
+        var okPre = sec.querySelector('pre.mermaid');
+        if (okPre) { okPre.style.width = '100%'; okPre.style.maxWidth = '100%'; }
+        okSvg.removeAttribute('height');
+        okSvg.style.maxWidth = '100%';
+        okSvg.style.width = '100%';
+        okSvg.style.height = 'auto';
+        sec.__rendered = true;
+        return true;
+      }
+      return false;
+    }
     /* a double render can leave a broken sibling next to a good svg */
     svgs.forEach(function (sv) {
       if (sv !== best && (sv.querySelector('.error-icon') || !sv.querySelector('g.node'))) sv.remove();
@@ -816,7 +838,7 @@ flowchart LR
   function installFallbacks() {
     document.querySelectorAll('.diag').forEach(function (sec) {
       var key = sectionKey(sec);
-      if (bound[key] || sec.__fallback) return;
+      if (bound[key] || sec.__fallback || sec.__rendered) return;
       sec.__fallback = true;
       var ids = [], labelFor = function (id) { return (NODES[id] && NODES[id].label) || id; };
       if (sec.dataset.scene) {
@@ -1565,6 +1587,11 @@ flowchart LR
         fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
         flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis',
                      nodeSpacing: 46, rankSpacing: 58, padding: 12 },
+        /* unbindable diagram types can't use the Fit control (it needs bound
+           nodes), so let them size themselves to the stage instead */
+        sequence: { useMaxWidth: true, diagramMarginX: 8, diagramMarginY: 8,
+                    actorMargin: 34, width: 132, boxMargin: 8 },
+        state: { useMaxWidth: true }, er: { useMaxWidth: true },
         themeVariables: dark ? {
           darkMode: true, fontSize: '17px', background: '#090d17',
           mainBkg: '#1a2444', nodeBorder: '#6d84d0', nodeTextColor: '#dfe6f5',
